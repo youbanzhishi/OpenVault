@@ -33,10 +33,6 @@ pub struct Snapshot {
     pub entries: Vec<FileEntry>,
     /// Parent snapshot ID (None for full backups, Some for incremental).
     pub parent_id: Option<SnapshotId>,
-    /// Base snapshot ID for differential backups.
-    /// Points to the full backup this differential is based on.
-    /// None for full and incremental backups.
-    pub base_snapshot_id: Option<SnapshotId>,
     /// Total size of all files in bytes.
     pub total_size: u64,
 }
@@ -47,7 +43,6 @@ pub struct Snapshot {
 pub enum BackupStrategy {
     Full,
     Incremental,
-    Differential,
 }
 
 /// Counter for generating unique snapshot IDs within the same second.
@@ -76,7 +71,6 @@ impl Snapshot {
             storage_backend,
             entries: Vec::new(),
             parent_id,
-            base_snapshot_id: None,
             total_size: 0,
         }
     }
@@ -91,4 +85,17 @@ impl Snapshot {
     pub fn file_count(&self) -> usize {
         self.entries.len()
     }
+}
+
+/// A specific version of a file from a backup snapshot.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BackupEntry {
+    /// The snapshot ID this entry belongs to.
+    pub snapshot_id: SnapshotId,
+    /// The file entry metadata.
+    pub file_entry: FileEntry,
+    /// When the snapshot was created.
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// The backup strategy used.
+    pub strategy: BackupStrategy,
 }

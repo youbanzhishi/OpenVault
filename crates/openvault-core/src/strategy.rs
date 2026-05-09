@@ -58,12 +58,12 @@ impl BackupEngine for FullBackup {
 }
 
 // ---------------------------------------------------------------------------
-// Incremental Backup (hash-based change detection)
+// Incremental Backup
 // ---------------------------------------------------------------------------
 
-/// Incremental backup strategy: only copies files whose SHA-256 hash differs
-/// from the latest snapshot. This is more reliable than mtime+size comparison
-/// because it detects genuine content changes regardless of timestamp manipulation.
+/// Incremental backup strategy: only copies files that changed since the last
+/// snapshot. Change detection uses (mtime, size); SHA-256 is used for
+/// verification when mtime+size are ambiguous.
 ///
 /// The incremental engine builds a **complete file view** by walking the
 /// snapshot chain (via `parent_id`) so that it can correctly detect changes
@@ -78,7 +78,18 @@ impl IncrementalBackup {
         storage: &dyn VaultStorage,
         latest: &Snapshot,
     ) -> VaultResult<std::collections::HashMap<String, FileEntry>> {
-        storage.build_complete_file_map(latest)
+        let mut map = std::collections::HashMap::new();
+        let mut current = Some(latest.clone());
+        while let Some(snap) = current {
+            for entry in snap.entries {
+                map.insert(entry.path.clone(), entry);
+            }
+            current = match &snap.parent_id {
+                Some(pid) => Some(storage.load_snapshot(pid)?),
+                None => None,
+            };
+        }
+        Ok(map)
     }
 }
 
@@ -114,26 +125,13 @@ impl BackupEngine for IncrementalBackup {
                 .unwrap_or(0);
             let size = metadata.len();
 
-            // Quick check: if mtime and size match, skip hashing
-            // (optimization: hash is expensive, mtime+size is cheap)
-            let quick_match = previous_files.get(&rel).is_some_and(|existing| {
-                existing.mtime == mtime && existing.size == size
-            });
-
-            if quick_match {
-                // mtime+size unchanged → content almost certainly unchanged
-                continue;
-            }
-
-            // Content may have changed → compute hash for definitive check
-            let checksum = sha256_file(file_path)?;
-
             let changed = match previous_files.get(&rel) {
-                Some(existing) => existing.checksum != checksum,
+                Some(existing) => existing.mtime != mtime || existing.size != size,
                 None => true,
             };
 
             if changed {
+                let checksum = sha256_file(file_path)?;
                 let entry = FileEntry {
                     path: rel,
                     size,
@@ -152,114 +150,6 @@ impl BackupEngine for IncrementalBackup {
 
     fn name(&self) -> &str {
         "incremental"
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Differential Backup
-// ---------------------------------------------------------------------------
-
-/// Differential backup strategy: backs up all files that changed since the
-/// **last full backup** (not just the last snapshot like incremental).
-///
-/// Key difference from incremental:
-/// - Incremental: changes since last snapshot (any type) → small but needs full chain for restore
-/// - Differential: changes since last full snapshot → larger but only needs base full + one diff
-///
-/// If no full backup exists, falls back to a full backup.
-pub struct DifferentialBackup;
-
-impl DifferentialBackup {
-    /// Build a complete file map from the last full backup.
-    fn build_base_file_map(
-        storage: &dyn VaultStorage,
-        base: &Snapshot,
-    ) -> VaultResult<std::collections::HashMap<String, FileEntry>> {
-        // Walk the chain from the full backup to build the complete view
-        // (the full backup itself should contain all files, but we use
-        // build_complete_file_map for consistency)
-        storage.build_complete_file_map(base)
-    }
-}
-
-impl BackupEngine for DifferentialBackup {
-    fn execute(&self, config: &BackupConfig, storage: &dyn VaultStorage) -> VaultResult<Snapshot> {
-        let source = &config.source;
-        let source_key = source.to_string_lossy().to_string();
-
-        let base_full = storage.latest_full_snapshot(source_key.clone())?;
-
-        // If no full backup exists, fall back to full backup
-        let base_full = match base_full {
-            Some(b) => b,
-            None => {
-                // No full backup yet → perform a full backup instead
-                return FullBackup.execute(config, storage);
-            }
-        };
-
-        let parent = storage.latest_snapshot(source_key.clone())?;
-
-        let mut snapshot = Snapshot::new(
-            BackupStrategy::Differential,
-            source_key,
-            storage.backend_name().to_string(),
-            parent.as_ref().map(|p| p.id.clone()),
-        );
-        snapshot.base_snapshot_id = Some(base_full.id.clone());
-
-        let files = collect_files(source, &config.exclude)?;
-
-        // Build the complete file map from the base full backup
-        let base_files = Self::build_base_file_map(storage, &base_full)?;
-
-        for file_path in &files {
-            let rel = relative_path(source, file_path)?;
-            let metadata = std::fs::metadata(file_path)?;
-            let mtime = metadata
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            let size = metadata.len();
-
-            // Quick check: if mtime and size match base, skip hashing
-            let quick_match = base_files.get(&rel).is_some_and(|existing| {
-                existing.mtime == mtime && existing.size == size
-            });
-
-            if quick_match {
-                continue;
-            }
-
-            // Content may have changed → compute hash for definitive check
-            let checksum = sha256_file(file_path)?;
-
-            let changed = match base_files.get(&rel) {
-                Some(existing) => existing.checksum != checksum,
-                None => true,
-            };
-
-            if changed {
-                let entry = FileEntry {
-                    path: rel,
-                    size,
-                    mtime,
-                    checksum,
-                };
-                let data = std::fs::read(file_path)?;
-                storage.store_file(&snapshot.id, &entry.path, &data)?;
-                snapshot.add_entry(entry);
-            }
-        }
-
-        storage.store_snapshot(&snapshot)?;
-        Ok(snapshot)
-    }
-
-    fn name(&self) -> &str {
-        "differential"
     }
 }
 
@@ -349,15 +239,5 @@ mod tests {
     fn test_glob_match_prefix_star() {
         assert!(glob_match(".git", ".git/config"));
         assert!(glob_match(".git", "some/.git/refs"));
-    }
-
-    #[test]
-    fn test_sha256_file() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let file_path = dir.path().join("test.txt");
-        std::fs::write(&file_path, "hello world").unwrap();
-        let hash = sha256_file(&file_path).unwrap();
-        // SHA-256 of "hello world" is well-known
-        assert_eq!(hash, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
     }
 }
