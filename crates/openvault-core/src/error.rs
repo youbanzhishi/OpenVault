@@ -30,6 +30,12 @@ pub enum VaultError {
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_yaml::Error),
+
+    #[error("No full backup found for differential backup")]
+    NoFullBackupFound,
+
+    #[error("Unsupported backend: {0}")]
+    UnsupportedBackend(String),
 }
 
 pub type VaultResult<T> = Result<T, VaultError>;

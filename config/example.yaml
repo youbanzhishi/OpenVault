@@ -1,7 +1,9 @@
 # OpenVault example configuration
+
+# === Local full backup ===
 name: "my-documents-backup"
 source: "/home/user/Documents"
-strategy: "full"  # or "incremental"
+strategy: "full"  # full | incremental | differential
 storage:
   type: "local"
   path: "/mnt/backup/vault"
@@ -11,3 +13,34 @@ exclude:
   - "node_modules"
   - "~*"
 # schedule: "0 2 * * *"  # daily at 2am (future use)
+
+# === Incremental backup example ===
+# name: "my-code-incremental"
+# source: "/home/user/projects"
+# strategy: "incremental"
+# storage:
+#   type: "local"
+#   path: "/mnt/backup/code-vault"
+# exclude:
+#   - "target"
+#   - "node_modules"
+#   - ".git"
+
+# === Differential backup example ===
+# name: "my-data-differential"
+# source: "/home/user/data"
+# strategy: "differential"
+# storage:
+#   type: "local"
+#   path: "/mnt/backup/data-vault"
+
+# === S3 backup example (interface defined, implementation pending) ===
+# name: "cloud-backup"
+# source: "/home/user/Documents"
+# strategy: "incremental"
+# storage:
+#   type: "s3"
+#   bucket: "my-backup-bucket"
+#   prefix: "openvault/"
+#   endpoint: "https://s3.example.com"   # Optional: for S3-compatible services
+#   region: "us-east-1"                   # Optional: AWS region

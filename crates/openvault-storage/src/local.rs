@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use openvault_core::error::{VaultError, VaultResult};
-use openvault_core::snapshot::Snapshot;
+use openvault_core::snapshot::{BackupStrategy, Snapshot};
 use openvault_core::storage::VaultStorage;
 
 /// Local filesystem implementation of `VaultStorage`.
@@ -160,6 +160,14 @@ impl VaultStorage for LocalVaultStorage {
             .max_by_key(|s| s.created_at))
     }
 
+    fn latest_full_snapshot(&self, source: String) -> VaultResult<Option<Snapshot>> {
+        let snapshots = self.list_snapshots()?;
+        Ok(snapshots
+            .into_iter()
+            .filter(|s| s.source == source && s.strategy == BackupStrategy::Full)
+            .max_by_key(|s| s.created_at))
+    }
+
     fn backend_name(&self) -> &str {
         "local"
     }
@@ -173,21 +181,76 @@ impl VaultStorage for LocalVaultStorage {
             ))
         })?;
 
-        for entry in &snapshot.entries {
-            let data = self.retrieve_file(&snapshot.id, &entry.path)?;
-            let file_path = target.join(&entry.path);
+        match snapshot.strategy {
+            BackupStrategy::Full => {
+                // Full backup: all files are in this snapshot
+                for entry in &snapshot.entries {
+                    let data = self.retrieve_file(&snapshot.id, &entry.path)?;
+                    let file_path = target.join(&entry.path);
 
-            if let Some(parent) = file_path.parent() {
-                std::fs::create_dir_all(parent)?;
+                    if let Some(parent) = file_path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+
+                    std::fs::write(&file_path, &data).map_err(|e| {
+                        VaultError::RestoreFailed(format!(
+                            "Failed to restore file {}: {}",
+                            file_path.display(),
+                            e
+                        ))
+                    })?;
+                }
             }
+            BackupStrategy::Incremental | BackupStrategy::Differential => {
+                // Incremental/Differential: need to walk the chain to build
+                // a complete file view
+                let file_map = self.build_complete_file_map(snapshot)?;
 
-            std::fs::write(&file_path, &data).map_err(|e| {
-                VaultError::RestoreFailed(format!(
-                    "Failed to restore file {}: {}",
-                    file_path.display(),
-                    e
-                ))
-            })?;
+                // For each file in the complete view, find which snapshot has it
+                // and retrieve from there
+                let mut visited = std::collections::HashSet::new();
+                let mut current = Some(snapshot.clone());
+
+                // Collect all snapshots in the chain (newest first)
+                let mut chain: Vec<Snapshot> = Vec::new();
+                while let Some(snap) = current {
+                    chain.push(snap.clone());
+                    current = match &snap.parent_id {
+                        Some(pid) => Some(self.load_snapshot(pid)?),
+                        None => None,
+                    };
+                }
+
+                // For each file in the complete view, restore from the
+                // newest snapshot that contains it
+                for rel_path in file_map.keys() {
+                    if visited.contains(rel_path) {
+                        continue;
+                    }
+                    visited.insert(rel_path.clone());
+
+                    // Find the first (newest) snapshot in the chain that has this file
+                    for snap in &chain {
+                        if snap.entries.iter().any(|e| e.path == *rel_path) {
+                            let data = self.retrieve_file(&snap.id, rel_path)?;
+                            let file_path = target.join(rel_path);
+
+                            if let Some(parent) = file_path.parent() {
+                                std::fs::create_dir_all(parent)?;
+                            }
+
+                            std::fs::write(&file_path, &data).map_err(|e| {
+                                VaultError::RestoreFailed(format!(
+                                    "Failed to restore file {}: {}",
+                                    file_path.display(),
+                                    e
+                                ))
+                            })?;
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -197,7 +260,7 @@ impl VaultStorage for LocalVaultStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openvault_core::snapshot::{BackupStrategy, FileEntry};
+    use openvault_core::snapshot::FileEntry;
     use tempfile::TempDir;
 
     fn make_snapshot(id: &str, strategy: BackupStrategy, entries: Vec<FileEntry>) -> Snapshot {
@@ -238,12 +301,14 @@ mod tests {
 
         let snap1 = make_snapshot("snap-a", BackupStrategy::Full, vec![]);
         let snap2 = make_snapshot("snap-b", BackupStrategy::Incremental, vec![]);
+        let snap3 = make_snapshot("snap-c", BackupStrategy::Differential, vec![]);
 
         storage.store_snapshot(&snap1).unwrap();
         storage.store_snapshot(&snap2).unwrap();
+        storage.store_snapshot(&snap3).unwrap();
 
         let list = storage.list_snapshots().unwrap();
-        assert_eq!(list.len(), 2);
+        assert_eq!(list.len(), 3);
     }
 
     #[test]
@@ -311,6 +376,86 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(target.path().join("a.txt")).unwrap(),
             "aaa"
+        );
+    }
+
+    #[test]
+    fn test_latest_full_snapshot() {
+        let dir = TempDir::new().unwrap();
+        let storage = LocalVaultStorage::new(dir.path()).unwrap();
+
+        let full_snap = make_snapshot("snap-full", BackupStrategy::Full, vec![]);
+        let inc_snap = make_snapshot("snap-inc", BackupStrategy::Incremental, vec![]);
+        let diff_snap = make_snapshot("snap-diff", BackupStrategy::Differential, vec![]);
+
+        storage.store_snapshot(&full_snap).unwrap();
+        storage.store_snapshot(&inc_snap).unwrap();
+        storage.store_snapshot(&diff_snap).unwrap();
+
+        let latest_full = storage.latest_full_snapshot("/tmp/source".to_string()).unwrap();
+        assert!(latest_full.is_some());
+        assert_eq!(latest_full.unwrap().id, "snap-full");
+    }
+
+    #[test]
+    fn test_restore_incremental_chain() {
+        let dir = TempDir::new().unwrap();
+        let storage = LocalVaultStorage::new(dir.path()).unwrap();
+
+        // Full backup with a.txt
+        let mut full_snap = Snapshot::new(
+            BackupStrategy::Full,
+            "/tmp/source".into(),
+            "local".into(),
+            None,
+        );
+        full_snap.id = "snap-chain-full".to_string();
+        full_snap.add_entry(FileEntry {
+            path: "a.txt".into(),
+            size: 5,
+            mtime: 1000,
+            checksum: "abc".into(),
+        });
+        full_snap.add_entry(FileEntry {
+            path: "b.txt".into(),
+            size: 5,
+            mtime: 1000,
+            checksum: "def".into(),
+        });
+
+        storage.store_file("snap-chain-full", "a.txt", b"aaa").unwrap();
+        storage.store_file("snap-chain-full", "b.txt", b"bbb").unwrap();
+        storage.store_snapshot(&full_snap).unwrap();
+
+        // Incremental with modified a.txt (no b.txt entry = unchanged)
+        let mut inc_snap = Snapshot::new(
+            BackupStrategy::Incremental,
+            "/tmp/source".into(),
+            "local".into(),
+            Some("snap-chain-full".to_string()),
+        );
+        inc_snap.id = "snap-chain-inc".to_string();
+        inc_snap.add_entry(FileEntry {
+            path: "a.txt".into(),
+            size: 8,
+            mtime: 2000,
+            checksum: "xyz".into(),
+        });
+
+        storage.store_file("snap-chain-inc", "a.txt", b"aaa_new").unwrap();
+        storage.store_snapshot(&inc_snap).unwrap();
+
+        // Restore from incremental → should get both a.txt (new) and b.txt (from full)
+        let target = TempDir::new().unwrap();
+        storage.restore_snapshot(&inc_snap, target.path()).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(target.path().join("a.txt")).unwrap(),
+            "aaa_new"
+        );
+        assert_eq!(
+            std::fs::read_to_string(target.path().join("b.txt")).unwrap(),
+            "bbb"
         );
     }
 }

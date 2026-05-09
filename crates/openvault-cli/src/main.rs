@@ -5,8 +5,10 @@ use clap::{Parser, Subcommand};
 
 use openvault_core::config::BackupConfig;
 use openvault_core::engine::engine_for_strategy;
+use openvault_core::snapshot::BackupStrategy;
 use openvault_core::storage::VaultStorage;
 use openvault_storage::LocalVaultStorage;
+use openvault_storage::S3VaultStorage;
 
 #[derive(Parser)]
 #[command(name = "vault", version, about = "OpenVault — intelligent file backup & disaster recovery")]
@@ -63,9 +65,29 @@ fn build_storage(config: &BackupConfig) -> Result<Box<dyn VaultStorage>> {
                 .context("Failed to initialize local storage")?;
             Ok(Box::new(storage))
         }
-        openvault_core::config::StorageConfig::S3 { .. } => {
-            anyhow::bail!("S3 storage backend is not yet implemented")
+        openvault_core::config::StorageConfig::S3 {
+            bucket,
+            prefix,
+            endpoint,
+            region,
+            ..
+        } => {
+            let storage = S3VaultStorage::new(
+                bucket.clone(),
+                prefix.clone(),
+                endpoint.clone(),
+                region.clone(),
+            );
+            Ok(Box::new(storage))
         }
+    }
+}
+
+fn strategy_display(strategy: &BackupStrategy) -> &'static str {
+    match strategy {
+        BackupStrategy::Full => "full",
+        BackupStrategy::Incremental => "incremental",
+        BackupStrategy::Differential => "differential",
     }
 }
 
@@ -146,10 +168,7 @@ fn main() -> Result<()> {
                     println!(
                         "{:<25} {:<15} {:<8} {:<12} {}",
                         snap.id,
-                        match snap.strategy {
-                            openvault_core::snapshot::BackupStrategy::Full => "full",
-                            openvault_core::snapshot::BackupStrategy::Incremental => "incremental",
-                        },
+                        strategy_display(&snap.strategy),
                         snap.file_count(),
                         format_bytes(snap.total_size),
                         snap.created_at.format("%Y-%m-%d %H:%M:%S"),
