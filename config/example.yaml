@@ -1,0 +1,13 @@
+# OpenVault example configuration
+name: "my-documents-backup"
+source: "/home/user/Documents"
+strategy: "full"  # or "incremental"
+storage:
+  type: "local"
+  path: "/mnt/backup/vault"
+exclude:
+  - "*.tmp"
+  - ".git"
+  - "node_modules"
+  - "~*"
+# schedule: "0 2 * * *"  # daily at 2am (future use)

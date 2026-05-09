@@ -1,0 +1,19 @@
+[package]
+name = "openvault-cli"
+version = "0.1.0"
+edition = "2021"
+description = "OpenVault CLI entry point"
+
+[[bin]]
+name = "vault"
+path = "src/main.rs"
+
+[dependencies]
+openvault-core = { path = "../openvault-core" }
+openvault-storage = { path = "../openvault-storage" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
