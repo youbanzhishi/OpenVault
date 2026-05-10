@@ -33,7 +33,8 @@ impl FileIndexEntry {
     pub fn new(path: impl Into<String>, size: u64) -> Self {
         let path_str = path.into();
         let p = Path::new(&path_str);
-        let extension = p.extension()
+        let extension = p
+            .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_lowercase());
 
@@ -127,7 +128,9 @@ impl FileIndex {
 
     /// Search by keyword across all entries.
     pub fn search_keyword(&self, keyword: &str) -> Vec<SearchResult> {
-        let mut results: Vec<SearchResult> = self.entries.values()
+        let mut results: Vec<SearchResult> = self
+            .entries
+            .values()
             .filter(|e| e.matches_keyword(keyword))
             .map(|e| {
                 let relevance = Self::compute_relevance(e, keyword);
@@ -142,7 +145,11 @@ impl FileIndex {
             })
             .collect();
 
-        results.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.relevance
+                .partial_cmp(&a.relevance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results
     }
 
@@ -211,11 +218,8 @@ impl TextExtractor {
             .to_lowercase();
 
         let extractable_exts = [
-            "txt", "md", "rst", "adoc",
-            "rs", "py", "js", "ts", "go", "java", "c", "cpp", "h",
-            "toml", "yaml", "yml", "json", "xml", "csv",
-            "sh", "bash", "zsh",
-            "html", "css", "sql",
+            "txt", "md", "rst", "adoc", "rs", "py", "js", "ts", "go", "java", "c", "cpp", "h",
+            "toml", "yaml", "yml", "json", "xml", "csv", "sh", "bash", "zsh", "html", "css", "sql",
         ];
 
         if extractable_exts.contains(&ext.as_str()) {
@@ -237,9 +241,15 @@ impl TextExtractor {
             let desc = match ext.as_str() {
                 "pdf" => "PDF document (text extraction not yet implemented)".to_string(),
                 "doc" | "docx" => "Word document (text extraction not yet implemented)".to_string(),
-                "xls" | "xlsx" => "Excel spreadsheet (text extraction not yet implemented)".to_string(),
-                "ppt" | "pptx" => "PowerPoint presentation (text extraction not yet implemented)".to_string(),
-                "jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" => "Image file (no text content)".to_string(),
+                "xls" | "xlsx" => {
+                    "Excel spreadsheet (text extraction not yet implemented)".to_string()
+                }
+                "ppt" | "pptx" => {
+                    "PowerPoint presentation (text extraction not yet implemented)".to_string()
+                }
+                "jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" => {
+                    "Image file (no text content)".to_string()
+                }
                 "mp4" | "avi" | "mkv" => "Video file (no text content)".to_string(),
                 "mp3" | "wav" | "flac" => "Audio file (no text content)".to_string(),
                 "zip" | "tar" | "gz" | "7z" => "Archive file".to_string(),
@@ -437,7 +447,11 @@ mod tests {
     #[test]
     fn test_search_result_fields() {
         let mut index = FileIndex::new();
-        index.upsert(FileIndexEntry::new("data.csv", 1024).with_tag("data").with_summary("Quarterly report data"));
+        index.upsert(
+            FileIndexEntry::new("data.csv", 1024)
+                .with_tag("data")
+                .with_summary("Quarterly report data"),
+        );
         let results = index.search_keyword("report");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].path, "data.csv");

@@ -404,10 +404,7 @@ impl RobotApiClient {
             .clone()
             .unwrap_or_else(|| "unknown".to_string());
 
-        let nearest = request
-            .location
-            .as_ref()
-            .map(|loc| loc.label.clone());
+        let nearest = request.location.as_ref().map(|loc| loc.label.clone());
 
         let data = AgentResponseData::ReplicaVerification {
             file_id: file_id.clone(),
@@ -515,7 +512,12 @@ mod tests {
             longitude: Some(116.4),
         };
         let profile = client
-            .register_agent("robot-1", "Living Room Speaker", AgentType::Speaker, location)
+            .register_agent(
+                "robot-1",
+                "Living Room Speaker",
+                AgentType::Speaker,
+                location,
+            )
             .await;
         assert_eq!(profile.agent_id, "robot-1");
         assert_eq!(profile.name, "Living Room Speaker");
@@ -589,7 +591,9 @@ mod tests {
             )
             .await;
         let mut request = AgentRequest::new(AgentCommand::TriggerRestore, "robot-4");
-        request.params.insert("private".to_string(), "true".to_string());
+        request
+            .params
+            .insert("private".to_string(), "true".to_string());
         // No auth token provided
         let response = client.process_command(request).await;
         assert!(!response.success);
@@ -610,7 +614,9 @@ mod tests {
         client.set_auth_token("robot-5", "secret-token-123").await;
 
         let mut request = AgentRequest::new(AgentCommand::TriggerRestore, "robot-5");
-        request.params.insert("private".to_string(), "true".to_string());
+        request
+            .params
+            .insert("private".to_string(), "true".to_string());
         request.auth_token = Some("secret-token-123".to_string());
         let response = client.process_command(request).await;
         assert!(response.success);

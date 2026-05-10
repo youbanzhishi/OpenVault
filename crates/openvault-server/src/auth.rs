@@ -68,7 +68,7 @@ impl AuthManager {
     pub fn generate_token(&self, claims: &Claims) -> ServerResult<String> {
         let key = EncodingKey::from_secret(self.secret.as_bytes());
         let header = Header::default();
-        
+
         encode(&header, claims, &key)
             .map_err(|e| ServerError::Internal(format!("Failed to generate token: {}", e)))
     }
@@ -77,20 +77,18 @@ impl AuthManager {
     pub fn validate_token(&self, token: &str) -> ServerResult<Claims> {
         let key = DecodingKey::from_secret(self.secret.as_bytes());
         let validation = Validation::default();
-        
-        let token_data = decode::<Claims>(token, &key, &validation)
-            .map_err(|e| {
-                match e.kind() {
-                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                        ServerError::Unauthorized("Token expired".to_string())
-                    }
-                    jsonwebtoken::errors::ErrorKind::InvalidToken => {
-                        ServerError::Unauthorized("Invalid token".to_string())
-                    }
-                    _ => ServerError::Unauthorized(format!("Token validation failed: {}", e)),
+
+        let token_data =
+            decode::<Claims>(token, &key, &validation).map_err(|e| match e.kind() {
+                jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                    ServerError::Unauthorized("Token expired".to_string())
                 }
+                jsonwebtoken::errors::ErrorKind::InvalidToken => {
+                    ServerError::Unauthorized("Invalid token".to_string())
+                }
+                _ => ServerError::Unauthorized(format!("Token validation failed: {}", e)),
             })?;
-        
+
         Ok(token_data.claims)
     }
 
@@ -136,9 +134,8 @@ pub async fn authenticate(
     authorization: Option<String>,
     required_scope: Option<&str>,
 ) -> ServerResult<Claims> {
-    let auth_header = authorization.ok_or_else(|| {
-        ServerError::Unauthorized("Missing Authorization header".to_string())
-    })?;
+    let auth_header = authorization
+        .ok_or_else(|| ServerError::Unauthorized("Missing Authorization header".to_string()))?;
 
     let token = AuthManager::extract_token(&auth_header)?;
     let claims = auth_manager.validate_token(token)?;

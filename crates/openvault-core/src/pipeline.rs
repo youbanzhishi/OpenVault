@@ -22,7 +22,7 @@
 
 use std::sync::Arc;
 
-use crate::compress::{detect_format, VaultCompressor, ZstdCompressor, Lz4Compressor};
+use crate::compress::{detect_format, Lz4Compressor, VaultCompressor, ZstdCompressor};
 use crate::crypto::{Aes256GcmCrypto, VaultCrypto};
 use crate::error::VaultError;
 use crate::snapshot::Snapshot;
@@ -67,16 +67,16 @@ impl StoragePipeline {
 
         // Step 1: Compress
         if let Some(ref compressor) = self.compressor {
-            processed = compressor.compress(&processed).map_err(|e| {
-                VaultError::Storage(format!("Pipeline compression failed: {}", e))
-            })?;
+            processed = compressor
+                .compress(&processed)
+                .map_err(|e| VaultError::Storage(format!("Pipeline compression failed: {}", e)))?;
         }
 
         // Step 2: Encrypt
         if let Some(ref crypto) = self.crypto {
-            processed = crypto.encrypt_to_bytes(&processed).map_err(|e| {
-                VaultError::Storage(format!("Pipeline encryption failed: {}", e))
-            })?;
+            processed = crypto
+                .encrypt_to_bytes(&processed)
+                .map_err(|e| VaultError::Storage(format!("Pipeline encryption failed: {}", e)))?;
         }
 
         Ok(processed)
@@ -88,9 +88,9 @@ impl StoragePipeline {
 
         // Step 1: Decrypt
         if let Some(ref crypto) = self.crypto {
-            processed = crypto.decrypt_from_bytes(&processed).map_err(|e| {
-                VaultError::Storage(format!("Pipeline decryption failed: {}", e))
-            })?;
+            processed = crypto
+                .decrypt_from_bytes(&processed)
+                .map_err(|e| VaultError::Storage(format!("Pipeline decryption failed: {}", e)))?;
         }
 
         // Step 2: Decompress (with auto-detection fallback)
@@ -129,12 +129,21 @@ impl StoragePipeline {
 }
 
 impl VaultStorage for StoragePipeline {
-    fn store_file(&self, snapshot_id: &str, rel_path: &str, data: &[u8]) -> crate::error::VaultResult<()> {
+    fn store_file(
+        &self,
+        snapshot_id: &str,
+        rel_path: &str,
+        data: &[u8],
+    ) -> crate::error::VaultResult<()> {
         let processed = self.process_store(data)?;
         self.inner.store_file(snapshot_id, rel_path, &processed)
     }
 
-    fn retrieve_file(&self, snapshot_id: &str, rel_path: &str) -> crate::error::VaultResult<Vec<u8>> {
+    fn retrieve_file(
+        &self,
+        snapshot_id: &str,
+        rel_path: &str,
+    ) -> crate::error::VaultResult<Vec<u8>> {
         let raw = self.inner.retrieve_file(snapshot_id, rel_path)?;
         self.process_retrieve(&raw)
     }
@@ -173,7 +182,11 @@ impl VaultStorage for StoragePipeline {
         }
     }
 
-    fn restore_snapshot(&self, snapshot: &Snapshot, target: &std::path::Path) -> crate::error::VaultResult<()> {
+    fn restore_snapshot(
+        &self,
+        snapshot: &Snapshot,
+        target: &std::path::Path,
+    ) -> crate::error::VaultResult<()> {
         std::fs::create_dir_all(target).map_err(|e| {
             VaultError::RestoreFailed(format!("Failed to create target directory: {}", e))
         })?;
@@ -188,7 +201,11 @@ impl VaultStorage for StoragePipeline {
 
             let data = self.retrieve_file(&snapshot.id, &entry.path)?;
             std::fs::write(&target_path, &data).map_err(|e| {
-                VaultError::RestoreFailed(format!("Failed to write {}: {}", target_path.display(), e))
+                VaultError::RestoreFailed(format!(
+                    "Failed to write {}: {}",
+                    target_path.display(),
+                    e
+                ))
             })?;
         }
 
@@ -367,27 +384,22 @@ impl PipelineConfig {
         let mut builder = PipelineBuilder::new(storage);
 
         if self.compression_enabled {
-            let compressor: Arc<dyn VaultCompressor> =
-                match self.compression_algorithm {
-                    Some(crate::compress::CompressionAlgorithm::Zstd) => {
-                        let level = self.compression_level.unwrap_or(3);
-                        Arc::new(ZstdCompressor::with_level(level))
-                    }
-                    Some(crate::compress::CompressionAlgorithm::Lz4) => {
-                        Arc::new(Lz4Compressor::new())
-                    }
-                    None => Arc::new(ZstdCompressor::new()),
-                };
+            let compressor: Arc<dyn VaultCompressor> = match self.compression_algorithm {
+                Some(crate::compress::CompressionAlgorithm::Zstd) => {
+                    let level = self.compression_level.unwrap_or(3);
+                    Arc::new(ZstdCompressor::with_level(level))
+                }
+                Some(crate::compress::CompressionAlgorithm::Lz4) => Arc::new(Lz4Compressor::new()),
+                None => Arc::new(ZstdCompressor::new()),
+            };
             builder = builder.compress(compressor);
         }
 
         if self.encryption_enabled {
             if let Some(ref key_b64) = self.encryption_key_base64 {
-                let key_bytes = base64::Engine::decode(
-                    &base64::engine::general_purpose::STANDARD,
-                    key_b64,
-                )
-                .map_err(|e| VaultError::Crypto(format!("Invalid base64 key: {}", e)))?;
+                let key_bytes =
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, key_b64)
+                        .map_err(|e| VaultError::Crypto(format!("Invalid base64 key: {}", e)))?;
                 builder = builder.encrypt_aes256gcm(&key_bytes)?;
             }
         }

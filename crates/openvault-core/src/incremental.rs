@@ -173,7 +173,8 @@ impl Chunker {
             // Remove oldest byte, add new byte
             if i >= self.window_size {
                 let old_idx = i - self.window_size;
-                hash = hash.wrapping_sub(data[old_idx].wrapping_shl(self.window_size as u32 % 32) as u32);
+                hash = hash
+                    .wrapping_sub(data[old_idx].wrapping_shl(self.window_size as u32 % 32) as u32);
             }
             hash = hash.wrapping_shl(1).wrapping_add(data[i] as u32);
 
@@ -276,7 +277,11 @@ impl ChunkStore {
 
     /// Store multiple chunks, deduplicating as we go.
     /// Returns (new_chunks_count, duplicate_count).
-    pub fn store_chunks(&self, snapshot_id: &str, chunks: &[Chunk]) -> IncrementalResult<(usize, usize)> {
+    pub fn store_chunks(
+        &self,
+        snapshot_id: &str,
+        chunks: &[Chunk],
+    ) -> IncrementalResult<(usize, usize)> {
         let mut new_count = 0;
         let mut dup_count = 0;
 
@@ -294,9 +299,7 @@ impl ChunkStore {
     pub fn retrieve_chunk(&self, snapshot_id: &str, hash: &str) -> IncrementalResult<Vec<u8>> {
         self.storage
             .retrieve_file(snapshot_id, &self.chunk_key(hash))
-            .map_err(|e| {
-                VaultError::Incremental(format!("Chunk {} not found: {}", hash, e))
-            })
+            .map_err(|e| VaultError::Incremental(format!("Chunk {} not found: {}", hash, e)))
     }
 
     /// Check if a chunk exists.
@@ -427,10 +430,7 @@ pub struct BackupManifest {
 impl BackupManifest {
     /// Create a new empty manifest.
     pub fn new(source: &str, parent_id: Option<String>) -> Self {
-        let id = format!(
-            "manifest-{}",
-            chrono::Utc::now().format("%Y%m%d%H%M%S")
-        );
+        let id = format!("manifest-{}", chrono::Utc::now().format("%Y%m%d%H%M%S"));
         Self {
             id,
             created_at: chrono::Utc::now(),
@@ -481,16 +481,14 @@ impl BackupManifest {
 
     /// Serialize the manifest to JSON bytes.
     pub fn to_bytes(&self) -> IncrementalResult<Vec<u8>> {
-        serde_json::to_vec(self).map_err(|e| {
-            VaultError::Incremental(format!("Failed to serialize manifest: {}", e))
-        })
+        serde_json::to_vec(self)
+            .map_err(|e| VaultError::Incremental(format!("Failed to serialize manifest: {}", e)))
     }
 
     /// Deserialize a manifest from JSON bytes.
     pub fn from_bytes(data: &[u8]) -> IncrementalResult<Self> {
-        serde_json::from_slice(data).map_err(|e| {
-            VaultError::Incremental(format!("Failed to deserialize manifest: {}", e))
-        })
+        serde_json::from_slice(data)
+            .map_err(|e| VaultError::Incremental(format!("Failed to deserialize manifest: {}", e)))
     }
 
     /// Number of files in this manifest.
@@ -648,9 +646,8 @@ impl IncrementalBackup {
         })?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                VaultError::Incremental(format!("Failed to read dir entry: {}", e))
-            })?;
+            let entry = entry
+                .map_err(|e| VaultError::Incremental(format!("Failed to read dir entry: {}", e)))?;
 
             let path = entry.path();
             if path.is_dir() {
@@ -713,7 +710,9 @@ impl IncrementalBackup {
     ) -> IncrementalResult<()> {
         let key = format!("__manifests__/{}", manifest.id);
         let data = manifest.to_bytes()?;
-        self.chunk_store.storage.store_file(snapshot_id, &key, &data)?;
+        self.chunk_store
+            .storage
+            .store_file(snapshot_id, &key, &data)?;
         self.chunk_store.save_meta(snapshot_id)?;
         Ok(())
     }

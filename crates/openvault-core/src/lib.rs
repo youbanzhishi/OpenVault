@@ -35,13 +35,13 @@ pub mod healing;
 pub mod integrity;
 pub mod notification;
 pub mod policy;
+pub mod replicator;
 pub mod restore;
 pub mod search;
 pub mod snapshot;
 pub mod storage;
-pub mod tenant;
-pub mod replicator;
 pub mod strategy;
+pub mod tenant;
 
 #[cfg(feature = "compress")]
 pub mod compress;
@@ -55,67 +55,70 @@ pub mod pipeline;
 // Legacy re-exports (Phase 1-5)
 pub use config::BackupConfig;
 pub use crypto::{
-    AesGcmEncryption, EncryptionAlgorithm, EncryptionProvider,
-    EncryptionProviderFactory, Key256,
+    AesGcmEncryption, EncryptionAlgorithm, EncryptionProvider, EncryptionProviderFactory, Key256,
 };
 pub use engine::BackupEngine;
 pub use error::{VaultError, VaultResult};
 pub use healing::{HealingConfig, HealingEngine, HealingResult, ScanResult};
-pub use integrity::{Checksum, HashAlgorithm, IntegrityEngine, IntegrityCheck, IntegrityReport};
-pub use policy::{Policy321, PolicyEngine, PolicyHealth, PolicyViolation, ViolationType, RemediationAction, RemediationType};
-pub use restore::{
-    ConflictStrategy, RestoreEngine, RestoreError, RestoreOptions, RestoreReport,
-    VerifyError, VerifyReport, EncryptedBlock,
+pub use integrity::{Checksum, HashAlgorithm, IntegrityCheck, IntegrityEngine, IntegrityReport};
+pub use policy::{
+    Policy321, PolicyEngine, PolicyHealth, PolicyViolation, RemediationAction, RemediationType,
+    ViolationType,
 };
-pub use replicator::{ReplicatorConfig, ReplicationCoordinator, ReplicationResult, HealthCheckResult, MaintenanceResult};
+pub use replicator::{
+    HealthCheckResult, MaintenanceResult, ReplicationCoordinator, ReplicationResult,
+    ReplicatorConfig,
+};
+pub use restore::{
+    ConflictStrategy, EncryptedBlock, RestoreEngine, RestoreError, RestoreOptions, RestoreReport,
+    VerifyError, VerifyReport,
+};
 pub use snapshot::{BackupEntry, BackupStrategy, FileEntry, Snapshot, SnapshotId};
 pub use storage::VaultStorage;
 
 // Phase 6 re-exports
 #[cfg(feature = "crypto-advanced")]
-pub use crypto::{VaultCrypto, Aes256GcmCrypto, EncryptedData, KeyDerivation, KeyManager, DataKeyInfo, EncryptedStorage};
+pub use crypto::{
+    Aes256GcmCrypto, DataKeyInfo, EncryptedData, EncryptedStorage, KeyDerivation, KeyManager,
+    VaultCrypto,
+};
 
 #[cfg(feature = "compress")]
 pub use compress::{
-    VaultCompressor, ZstdCompressor, Lz4Compressor, CompressedStorage,
-    CompressionAlgorithm, CompressionStats, compress_with_stats,
-    auto_decompress, detect_format, ZSTD_MAGIC, LZ4_MAGIC,
+    auto_decompress, compress_with_stats, detect_format, CompressedStorage, CompressionAlgorithm,
+    CompressionStats, Lz4Compressor, VaultCompressor, ZstdCompressor, LZ4_MAGIC, ZSTD_MAGIC,
 };
 
 #[cfg(feature = "incremental")]
 pub use incremental::{
-    Chunker, Chunk, ChunkStore, ChunkRef, ChunkStoreMeta,
-    IncrementalBackup, BackupManifest, FileChunks, BackupReport,
-    BackupRestore, RestoreReport as IncrementalRestoreReport,
+    BackupManifest, BackupReport, BackupRestore, Chunk, ChunkRef, ChunkStore, ChunkStoreMeta,
+    Chunker, FileChunks, IncrementalBackup, RestoreReport as IncrementalRestoreReport,
 };
 
 #[cfg(feature = "pipeline")]
-pub use pipeline::{
-    StoragePipeline, PipelineBuilder, PipelineConfig,
-};
+pub use pipeline::{PipelineBuilder, PipelineConfig, StoragePipeline};
 
 // Phase 7 re-exports
-pub use search::{
-    FileIndex, FileIndexEntry, SearchResult, TextExtractor, ExtractedText,
-    SemanticSearch, KeywordSemanticSearch,
-};
 pub use restore::NaturalLanguageQuery;
+pub use search::{
+    ExtractedText, FileIndex, FileIndexEntry, KeywordSemanticSearch, SearchResult, SemanticSearch,
+    TextExtractor,
+};
 
 // Phase 8 re-exports
 pub use audit::{
-    AuditLog, AuditEntry, AuditOperation, AuditResult, AuditQuery, AuditQueryResult,
-    RotationConfig,
+    AuditEntry, AuditLog, AuditOperation, AuditQuery, AuditQueryResult, AuditResult, RotationConfig,
 };
 pub use compliance::{
-    ComplianceRule, ComplianceChecker, ComplianceReport, ComplianceStatus,
-    ComplianceFinding, FindingSeverity, DataClassification,
-    RetentionPolicy, RetentionManager, RetentionRecord, RetentionSweepResult,
-};
-pub use tenant::{
-    Tenant, TenantManager, TenantQuota, TenantUsage, QuotaResult, QuotaViolation, QuotaKind,
-    AccessControl, UserAccess, Role, Permission, role_permissions,
+    ComplianceChecker, ComplianceFinding, ComplianceReport, ComplianceRule, ComplianceStatus,
+    DataClassification, FindingSeverity, RetentionManager, RetentionPolicy, RetentionRecord,
+    RetentionSweepResult,
 };
 pub use notification::{
-    NotificationSvc, NotificationRule, NotificationType, Notification as NotificationRecord,
-    Severity, Channel,
+    Channel, Notification as NotificationRecord, NotificationRule, NotificationSvc,
+    NotificationType, Severity,
+};
+pub use tenant::{
+    role_permissions, AccessControl, Permission, QuotaKind, QuotaResult, QuotaViolation, Role,
+    Tenant, TenantManager, TenantQuota, TenantUsage, UserAccess,
 };

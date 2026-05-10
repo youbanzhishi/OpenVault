@@ -9,10 +9,10 @@
 //! - **SmartScheduler**: Optimizes backup scheduling based on network
 //!   conditions, device availability, and priority queues.
 
-pub mod classifier;
 pub mod anomaly;
+pub mod classifier;
 pub mod scheduler;
 
-pub use classifier::{FileClassifier, ClassificationRule, FileCategory, BackupPriority};
-pub use anomaly::{AnomalyPredictor, RiskLevel, RiskAssessment, CheckpointRecord};
-pub use scheduler::{SmartScheduler, ScheduleWindow, ScheduleEntry, NetworkCondition};
+pub use anomaly::{AnomalyPredictor, CheckpointRecord, RiskAssessment, RiskLevel};
+pub use classifier::{BackupPriority, ClassificationRule, FileCategory, FileClassifier};
+pub use scheduler::{NetworkCondition, ScheduleEntry, ScheduleWindow, SmartScheduler};

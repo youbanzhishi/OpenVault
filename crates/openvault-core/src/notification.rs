@@ -288,7 +288,10 @@ impl NotificationSvc {
 
     /// Count notifications by type.
     pub fn count_by_type(&self, ntype: &NotificationType) -> usize {
-        self.history.iter().filter(|n| n.notification_type == *ntype).count()
+        self.history
+            .iter()
+            .filter(|n| n.notification_type == *ntype)
+            .count()
     }
 }
 
@@ -303,14 +306,16 @@ mod tests {
     #[test]
     fn test_send_notification() {
         let mut svc = NotificationSvc::new();
-        let channels = svc.send(
-            NotificationType::BackupCompleted,
-            Severity::Info,
-            "Backup done",
-            "Backup completed successfully",
-            None,
-            HashMap::new(),
-        ).unwrap();
+        let channels = svc
+            .send(
+                NotificationType::BackupCompleted,
+                Severity::Info,
+                "Backup done",
+                "Backup completed successfully",
+                None,
+                HashMap::new(),
+            )
+            .unwrap();
         assert!(!channels.is_empty());
         assert_eq!(svc.history().len(), 1);
     }
@@ -319,8 +324,24 @@ mod tests {
     fn test_dedup() {
         let mut svc = NotificationSvc::new();
         // Send same notification twice quickly
-        svc.send(NotificationType::BackupFailed, Severity::Error, "Backup fail", "msg", None, HashMap::new()).unwrap();
-        svc.send(NotificationType::BackupFailed, Severity::Error, "Backup fail", "msg", None, HashMap::new()).unwrap();
+        svc.send(
+            NotificationType::BackupFailed,
+            Severity::Error,
+            "Backup fail",
+            "msg",
+            None,
+            HashMap::new(),
+        )
+        .unwrap();
+        svc.send(
+            NotificationType::BackupFailed,
+            Severity::Error,
+            "Backup fail",
+            "msg",
+            None,
+            HashMap::new(),
+        )
+        .unwrap();
         // Second should be deduped
         assert_eq!(svc.history().len(), 1);
     }
@@ -333,14 +354,16 @@ mod tests {
             min_severity: Severity::Warning,
             ..NotificationRule::default()
         });
-        let channels = svc.send(
-            NotificationType::BackupCompleted,
-            Severity::Info,
-            "Low sev",
-            "msg",
-            None,
-            HashMap::new(),
-        ).unwrap();
+        let channels = svc
+            .send(
+                NotificationType::BackupCompleted,
+                Severity::Info,
+                "Low sev",
+                "msg",
+                None,
+                HashMap::new(),
+            )
+            .unwrap();
         assert!(channels.is_empty());
     }
 
@@ -352,17 +375,43 @@ mod tests {
             ..NotificationRule::default()
         });
         // Compliance violation should go through
-        let ch = svc.send(NotificationType::ComplianceViolation, Severity::Error, "Violation", "msg", None, HashMap::new()).unwrap();
+        let ch = svc
+            .send(
+                NotificationType::ComplianceViolation,
+                Severity::Error,
+                "Violation",
+                "msg",
+                None,
+                HashMap::new(),
+            )
+            .unwrap();
         assert!(!ch.is_empty());
         // Backup completed should not match
-        let ch2 = svc.send(NotificationType::BackupCompleted, Severity::Error, "Backup", "msg", None, HashMap::new()).unwrap();
+        let ch2 = svc
+            .send(
+                NotificationType::BackupCompleted,
+                Severity::Error,
+                "Backup",
+                "msg",
+                None,
+                HashMap::new(),
+            )
+            .unwrap();
         assert!(ch2.is_empty());
     }
 
     #[test]
     fn test_mark_read() {
         let mut svc = NotificationSvc::new();
-        svc.send(NotificationType::BackupCompleted, Severity::Info, "Test", "msg", None, HashMap::new()).unwrap();
+        svc.send(
+            NotificationType::BackupCompleted,
+            Severity::Info,
+            "Test",
+            "msg",
+            None,
+            HashMap::new(),
+        )
+        .unwrap();
         let id = svc.history()[0].id.clone();
         assert!(!svc.history()[0].read);
         assert!(svc.mark_read(&id));
@@ -372,8 +421,24 @@ mod tests {
     #[test]
     fn test_unread() {
         let mut svc = NotificationSvc::new();
-        svc.send(NotificationType::BackupCompleted, Severity::Info, "A", "msg", None, HashMap::new()).unwrap();
-        svc.send(NotificationType::BackupFailed, Severity::Error, "B", "msg", None, HashMap::new()).unwrap();
+        svc.send(
+            NotificationType::BackupCompleted,
+            Severity::Info,
+            "A",
+            "msg",
+            None,
+            HashMap::new(),
+        )
+        .unwrap();
+        svc.send(
+            NotificationType::BackupFailed,
+            Severity::Error,
+            "B",
+            "msg",
+            None,
+            HashMap::new(),
+        )
+        .unwrap();
         assert_eq!(svc.unread().len(), 2);
         svc.mark_all_read();
         assert_eq!(svc.unread().len(), 0);
@@ -382,8 +447,24 @@ mod tests {
     #[test]
     fn test_count_by_type() {
         let mut svc = NotificationSvc::new();
-        svc.send(NotificationType::BackupCompleted, Severity::Info, "A", "msg", None, HashMap::new()).unwrap();
-        svc.send(NotificationType::BackupCompleted, Severity::Info, "B", "msg", None, HashMap::new()).unwrap();
+        svc.send(
+            NotificationType::BackupCompleted,
+            Severity::Info,
+            "A",
+            "msg",
+            None,
+            HashMap::new(),
+        )
+        .unwrap();
+        svc.send(
+            NotificationType::BackupCompleted,
+            Severity::Info,
+            "B",
+            "msg",
+            None,
+            HashMap::new(),
+        )
+        .unwrap();
         // The second "B" has different title but same type — dedup key is different (includes title)
         // Actually dedup key includes title, so they won't be deduped
         assert_eq!(svc.count_by_type(&NotificationType::BackupCompleted), 2);

@@ -38,9 +38,15 @@ pub struct HealingConfig {
     pub verify_after_heal: bool,
 }
 
-fn default_enabled() -> bool { true }
-fn default_check_interval_hours() -> u32 { 24 }
-fn default_verify_after() -> bool { true }
+fn default_enabled() -> bool {
+    true
+}
+fn default_check_interval_hours() -> u32 {
+    24
+}
+fn default_verify_after() -> bool {
+    true
+}
 
 impl Default for HealingConfig {
     fn default() -> Self {
@@ -153,10 +159,7 @@ pub struct HealingEngine;
 
 impl HealingEngine {
     /// Scan a snapshot for corruption by verifying all file checksums.
-    pub fn scan(
-        storage: &dyn VaultStorage,
-        snapshot: &Snapshot,
-    ) -> VaultResult<ScanResult> {
+    pub fn scan(storage: &dyn VaultStorage, snapshot: &Snapshot) -> VaultResult<ScanResult> {
         let mut result = ScanResult {
             snapshot_id: snapshot.id.clone(),
             ..Default::default()
@@ -297,10 +300,7 @@ impl HealingEngine {
                                         result.file_results.push(FileHealingResult {
                                             path: check.path.clone(),
                                             success: false,
-                                            error: Some(format!(
-                                                "Post-heal read failed: {}",
-                                                e
-                                            )),
+                                            error: Some(format!("Post-heal read failed: {}", e)),
                                         });
                                     }
                                 }
@@ -377,7 +377,8 @@ impl HealingEngine {
                 match source.retrieve_file(&snapshot.id, &check.path) {
                     Ok(healthy_data) => {
                         // Verify source data
-                        let source_checksum = Checksum::compute(&healthy_data, HashAlgorithm::Sha256);
+                        let source_checksum =
+                            Checksum::compute(&healthy_data, HashAlgorithm::Sha256);
                         if source_checksum.value() != check.expected_checksum {
                             continue; // Try next source
                         }
@@ -389,8 +390,10 @@ impl HealingEngine {
                                 if config.verify_after_heal {
                                     match target_storage.retrieve_file(&snapshot.id, &check.path) {
                                         Ok(recovered) => {
-                                            let verify_checksum =
-                                                Checksum::compute(&recovered, HashAlgorithm::Sha256);
+                                            let verify_checksum = Checksum::compute(
+                                                &recovered,
+                                                HashAlgorithm::Sha256,
+                                            );
                                             if verify_checksum.value() == check.expected_checksum {
                                                 result.files_healed += 1;
                                                 heals_this_run += 1;
@@ -410,7 +413,8 @@ impl HealingEngine {
                                 } else {
                                     result.files_healed += 1;
                                     heals_this_run += 1;
-                                    result.recovery_source = Some(source.backend_name().to_string());
+                                    result.recovery_source =
+                                        Some(source.backend_name().to_string());
                                     result.file_results.push(FileHealingResult {
                                         path: check.path.clone(),
                                         success: true,
@@ -460,7 +464,12 @@ mod tests {
     use crate::snapshot::{BackupStrategy, FileEntry, Snapshot};
 
     fn make_snapshot(id: &str, source: &str, entries: Vec<FileEntry>) -> Snapshot {
-        let mut snap = Snapshot::new(BackupStrategy::Full, source.to_string(), "local".into(), None);
+        let mut snap = Snapshot::new(
+            BackupStrategy::Full,
+            source.to_string(),
+            "local".into(),
+            None,
+        );
         snap.id = id.to_string();
         for e in entries {
             snap.add_entry(e);
@@ -469,7 +478,9 @@ mod tests {
     }
 
     fn compute_checksum(data: &[u8]) -> String {
-        Checksum::compute(data, HashAlgorithm::Sha256).value().to_string()
+        Checksum::compute(data, HashAlgorithm::Sha256)
+            .value()
+            .to_string()
     }
 
     #[test]

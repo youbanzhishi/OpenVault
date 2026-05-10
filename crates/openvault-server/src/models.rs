@@ -46,7 +46,9 @@ impl Device {
     pub fn new(registration: DeviceRegistration) -> Self {
         let now = Utc::now();
         Self {
-            device_id: registration.device_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+            device_id: registration
+                .device_id
+                .unwrap_or_else(|| Uuid::new_v4().to_string()),
             device_name: registration.device_name,
             device_type: registration.device_type,
             capabilities: registration.capabilities,

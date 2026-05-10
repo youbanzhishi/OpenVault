@@ -120,7 +120,8 @@ impl S3VaultStorage {
         let date_stamp = now.format("%Y%m%d").to_string();
         let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
 
-        let host = self.endpoint
+        let host = self
+            .endpoint
             .trim_start_matches("http://")
             .trim_start_matches("https://")
             .trim_end_matches('/');
@@ -199,7 +200,8 @@ impl S3VaultStorage {
         let date_stamp = now.format("%Y%m%d").to_string();
         let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
 
-        let host = self.endpoint
+        let host = self
+            .endpoint
             .trim_start_matches("http://")
             .trim_start_matches("https://")
             .trim_end_matches('/');
@@ -264,7 +266,10 @@ impl S3VaultStorage {
     fn put_object(&self, key: &str, data: &[u8]) -> VaultResult<()> {
         let url = self.object_url(key);
         let mut headers = Vec::new();
-        headers.push(("content-type".to_string(), "application/octet-stream".to_string()));
+        headers.push((
+            "content-type".to_string(),
+            "application/octet-stream".to_string(),
+        ));
         self.sign_request("PUT", key, &mut headers, data);
 
         let mut request = self.client.put(&url).body(data.to_vec());
@@ -272,9 +277,9 @@ impl S3VaultStorage {
             request = request.header(k.as_str(), v.as_str());
         }
 
-        let response = request.send().map_err(|e| {
-            VaultError::Storage(format!("S3 PUT failed for key {}: {}", key, e))
-        })?;
+        let response = request
+            .send()
+            .map_err(|e| VaultError::Storage(format!("S3 PUT failed for key {}: {}", key, e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -299,12 +304,13 @@ impl S3VaultStorage {
             request = request.header(k.as_str(), v.as_str());
         }
 
-        let response = request.send().map_err(|e| {
-            VaultError::Storage(format!("S3 GET failed for key {}: {}", key, e))
-        })?;
+        let response = request
+            .send()
+            .map_err(|e| VaultError::Storage(format!("S3 GET failed for key {}: {}", key, e)))?;
 
         if response.status().is_success() {
-            response.bytes()
+            response
+                .bytes()
                 .map(|b| b.to_vec())
                 .map_err(|e| VaultError::Storage(format!("S3 GET read body failed: {}", e)))
         } else if response.status().as_u16() == 404 {
@@ -330,9 +336,9 @@ impl S3VaultStorage {
             request = request.header(k.as_str(), v.as_str());
         }
 
-        let response = request.send().map_err(|e| {
-            VaultError::Storage(format!("S3 DELETE failed for key {}: {}", key, e))
-        })?;
+        let response = request
+            .send()
+            .map_err(|e| VaultError::Storage(format!("S3 DELETE failed for key {}: {}", key, e)))?;
 
         if !response.status().is_success() && response.status().as_u16() != 204 {
             let status = response.status();
@@ -357,9 +363,9 @@ impl S3VaultStorage {
             request = request.header(k.as_str(), v.as_str());
         }
 
-        let response = request.send().map_err(|e| {
-            VaultError::Storage(format!("S3 HEAD failed for key {}: {}", key, e))
-        })?;
+        let response = request
+            .send()
+            .map_err(|e| VaultError::Storage(format!("S3 HEAD failed for key {}: {}", key, e)))?;
 
         Ok(response.status().is_success())
     }
@@ -368,12 +374,7 @@ impl S3VaultStorage {
     fn list_objects(&self, prefix: &str) -> VaultResult<Vec<String>> {
         let endpoint = self.endpoint.trim_end_matches('/');
         let qs = format!("list-type=2&prefix={}", urlencoding::encode(prefix));
-        let url = format!(
-            "{}/{}?{}",
-            endpoint,
-            self.bucket,
-            qs,
-        );
+        let url = format!("{}/{}?{}", endpoint, self.bucket, qs,);
 
         let mut headers = Vec::new();
         self.sign_request_list("GET", &qs, &mut headers, &[]);
@@ -383,9 +384,9 @@ impl S3VaultStorage {
             request = request.header(k.as_str(), v.as_str());
         }
 
-        let response = request.send().map_err(|e| {
-            VaultError::Storage(format!("S3 LIST failed: {}", e))
-        })?;
+        let response = request
+            .send()
+            .map_err(|e| VaultError::Storage(format!("S3 LIST failed: {}", e)))?;
 
         if !response.status().is_success() {
             return Err(VaultError::Storage(format!(
@@ -394,9 +395,9 @@ impl S3VaultStorage {
             )));
         }
 
-        let body = response.text().map_err(|e| {
-            VaultError::Storage(format!("S3 LIST read body failed: {}", e))
-        })?;
+        let body = response
+            .text()
+            .map_err(|e| VaultError::Storage(format!("S3 LIST read body failed: {}", e)))?;
 
         // Parse XML to extract keys (simplified parsing)
         let mut keys = Vec::new();
@@ -442,21 +443,18 @@ impl VaultStorage for S3VaultStorage {
 
     fn store_snapshot(&self, snapshot: &Snapshot) -> VaultResult<()> {
         let key = self.snapshot_key(&snapshot.id);
-        let json = serde_json::to_string_pretty(snapshot).map_err(|e| {
-            VaultError::Storage(format!("Failed to serialize snapshot: {}", e))
-        })?;
+        let json = serde_json::to_string_pretty(snapshot)
+            .map_err(|e| VaultError::Storage(format!("Failed to serialize snapshot: {}", e)))?;
         self.put_object(&key, json.as_bytes())
     }
 
     fn load_snapshot(&self, id: &str) -> VaultResult<Snapshot> {
         let key = self.snapshot_key(id);
         let data = self.get_object(&key)?;
-        let json = String::from_utf8(data).map_err(|e| {
-            VaultError::Storage(format!("Invalid UTF-8 in snapshot {}: {}", id, e))
-        })?;
-        serde_json::from_str(&json).map_err(|e| {
-            VaultError::Storage(format!("Failed to parse snapshot {}: {}", id, e))
-        })
+        let json = String::from_utf8(data)
+            .map_err(|e| VaultError::Storage(format!("Invalid UTF-8 in snapshot {}: {}", id, e)))?;
+        serde_json::from_str(&json)
+            .map_err(|e| VaultError::Storage(format!("Failed to parse snapshot {}: {}", id, e)))
     }
 
     fn list_snapshots(&self) -> VaultResult<Vec<Snapshot>> {
@@ -605,8 +603,14 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(s3.s3_key("snapshots/test.json"), "backups/snapshots/test.json");
-        assert_eq!(s3.snapshot_key("snap-001"), "backups/snapshots/snap-001.json");
+        assert_eq!(
+            s3.s3_key("snapshots/test.json"),
+            "backups/snapshots/test.json"
+        );
+        assert_eq!(
+            s3.snapshot_key("snap-001"),
+            "backups/snapshots/snap-001.json"
+        );
     }
 
     #[test]
@@ -663,7 +667,10 @@ mod tests {
 
         // Should have Authorization header
         let has_auth = headers.iter().any(|(k, _)| k == "Authorization");
-        assert!(has_auth, "SigV4 signing should produce Authorization header");
+        assert!(
+            has_auth,
+            "SigV4 signing should produce Authorization header"
+        );
 
         // Should have x-amz-date header
         let has_date = headers.iter().any(|(k, _)| k == "x-amz-date");

@@ -9,9 +9,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-
-
-
 // ============================================================================
 // Data Classification
 // ============================================================================
@@ -30,7 +27,10 @@ impl DataClassification {
     /// Infer classification from a file path.
     pub fn from_path(path: &str) -> Self {
         let lower = path.to_lowercase();
-        if lower.contains("/secret/") || lower.contains("/classified/") || lower.contains("/restricted/") {
+        if lower.contains("/secret/")
+            || lower.contains("/classified/")
+            || lower.contains("/restricted/")
+        {
             DataClassification::Restricted
         } else if lower.contains("/confidential/") || lower.contains("/private/") {
             DataClassification::Confidential
@@ -97,7 +97,9 @@ impl ComplianceRule {
         if self.allowed_regions.is_empty() {
             return true;
         }
-        self.allowed_regions.iter().any(|r| r.eq_ignore_ascii_case(region))
+        self.allowed_regions
+            .iter()
+            .any(|r| r.eq_ignore_ascii_case(region))
     }
 }
 
@@ -410,7 +412,8 @@ impl RetentionManager {
             match &rule.retention {
                 RetentionPolicy::KeepAll => return false,
                 RetentionPolicy::KeepYears(years) => {
-                    let keep_until = record.created_at + chrono::Duration::days((*years as i64) * 365);
+                    let keep_until =
+                        record.created_at + chrono::Duration::days((*years as i64) * 365);
                     if now < keep_until {
                         return false;
                     }
@@ -418,7 +421,8 @@ impl RetentionManager {
                 RetentionPolicy::KeepUntil(date_str) => {
                     if let Ok(until) = date_str.parse::<chrono::NaiveDate>() {
                         let keep_until = until.and_hms_opt(23, 59, 59).unwrap();
-                        let keep_until_utc = DateTime::<Utc>::from_naive_utc_and_offset(keep_until, Utc);
+                        let keep_until_utc =
+                            DateTime::<Utc>::from_naive_utc_and_offset(keep_until, Utc);
                         if now < keep_until_utc {
                             return false;
                         }
@@ -442,7 +446,10 @@ impl RetentionManager {
                 freed_bytes += record.size_bytes;
                 details.push(format!(
                     "EXPIRED: {} ({}, {}) — {} bytes",
-                    record.id, record.path, record.created_at.format("%Y-%m-%d"), record.size_bytes
+                    record.id,
+                    record.path,
+                    record.created_at.format("%Y-%m-%d"),
+                    record.size_bytes
                 ));
                 expired.push(record.id.clone());
             } else {
@@ -470,10 +477,22 @@ mod tests {
 
     #[test]
     fn test_data_classification_from_path() {
-        assert_eq!(DataClassification::from_path("/public/readme.md"), DataClassification::Public);
-        assert_eq!(DataClassification::from_path("/internal/docs"), DataClassification::Internal);
-        assert_eq!(DataClassification::from_path("/confidential/secret.pdf"), DataClassification::Confidential);
-        assert_eq!(DataClassification::from_path("/restricted/nuclear.doc"), DataClassification::Restricted);
+        assert_eq!(
+            DataClassification::from_path("/public/readme.md"),
+            DataClassification::Public
+        );
+        assert_eq!(
+            DataClassification::from_path("/internal/docs"),
+            DataClassification::Internal
+        );
+        assert_eq!(
+            DataClassification::from_path("/confidential/secret.pdf"),
+            DataClassification::Confidential
+        );
+        assert_eq!(
+            DataClassification::from_path("/restricted/nuclear.doc"),
+            DataClassification::Restricted
+        );
     }
 
     #[test]
@@ -558,7 +577,10 @@ mod tests {
         });
         let report = checker.check("/data/confidential/report.pdf", "US", 30);
         assert_eq!(report.overall_status, ComplianceStatus::Fail);
-        assert!(report.findings.iter().any(|f| f.message.contains("Retention")));
+        assert!(report
+            .findings
+            .iter()
+            .any(|f| f.message.contains("Retention")));
     }
 
     #[test]

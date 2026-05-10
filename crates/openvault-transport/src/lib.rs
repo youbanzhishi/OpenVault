@@ -8,10 +8,10 @@ pub mod error;
 pub mod router;
 pub mod transport;
 
-pub use config::{OpenLinkConfig, TransferConfig, StorageBackend};
+pub use config::{OpenLinkConfig, StorageBackend, TransferConfig};
 pub use error::TransportError;
-pub use router::{StorageRouter, TransferRouter, RouteDecision};
-pub use transport::{OpenLinkTransport, Transport, TransferStats};
+pub use router::{RouteDecision, StorageRouter, TransferRouter};
+pub use transport::{OpenLinkTransport, TransferStats, Transport};
 
 use anyhow::Result;
 

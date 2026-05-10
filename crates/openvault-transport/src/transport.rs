@@ -1,7 +1,9 @@
 //! OpenLink transport implementation
 
 use crate::config::{OpenLinkConfig, TransferConfig};
-use crate::router::{RouteDecision, StorageRouter, TransferRouter, DurabilityLevel, AccessFrequency};
+use crate::router::{
+    AccessFrequency, DurabilityLevel, RouteDecision, StorageRouter, TransferRouter,
+};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -143,15 +145,13 @@ impl OpenLinkTransport {
     /// Connect to OpenLink
     pub async fn connect(&self) -> anyhow::Result<()> {
         *self.status.write().await = TransportStatus::Connecting;
-        
+
         let client_opt = self.client.as_ref().as_ref();
-        let client = client_opt.ok_or_else(|| {
-            anyhow::anyhow!("HTTP client not initialized")
-        })?;
+        let client = client_opt.ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
         // Test connection to OpenLink endpoint
         let endpoint = format!("{}/health", self.config.endpoint);
-        
+
         match client.get(&endpoint).send().await {
             Ok(resp) if resp.status().is_success() => {
                 *self.status.write().await = TransportStatus::Connected;
@@ -192,7 +192,8 @@ impl OpenLinkTransport {
         access_frequency: AccessFrequency,
         durability: DurabilityLevel,
     ) -> RouteDecision {
-        self.storage_router.select_storage(data_size, access_frequency, durability)
+        self.storage_router
+            .select_storage(data_size, access_frequency, durability)
     }
 
     /// Get the API endpoint
@@ -219,9 +220,7 @@ impl OpenLinkTransport {
     ) -> anyhow::Result<()> {
         let url = self.api_url("/api/v1/snapshots");
         let client_opt = self.client.as_ref().as_ref();
-        let client = client_opt.ok_or_else(|| {
-            anyhow::anyhow!("HTTP client not initialized")
-        })?;
+        let client = client_opt.ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
         let mut request = client.post(&url);
         if let Some(auth) = self.config.auth_header() {
@@ -254,9 +253,7 @@ impl OpenLinkTransport {
     ) -> anyhow::Result<openvault_core::snapshot::Snapshot> {
         let url = self.api_url(&format!("/api/v1/snapshots/{}", snapshot_id));
         let client_opt = self.client.as_ref().as_ref();
-        let client = client_opt.ok_or_else(|| {
-            anyhow::anyhow!("HTTP client not initialized")
-        })?;
+        let client = client_opt.ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
         let mut request = client.get(&url);
         if let Some(auth) = self.config.auth_header() {
@@ -279,12 +276,12 @@ impl OpenLinkTransport {
 
     /// List all snapshots from OpenLink
     #[allow(dead_code)]
-    pub async fn list_remote_snapshots(&self) -> anyhow::Result<Vec<openvault_core::snapshot::Snapshot>> {
+    pub async fn list_remote_snapshots(
+        &self,
+    ) -> anyhow::Result<Vec<openvault_core::snapshot::Snapshot>> {
         let url = self.api_url("/api/v1/snapshots");
         let client_opt = self.client.as_ref().as_ref();
-        let client = client_opt.ok_or_else(|| {
-            anyhow::anyhow!("HTTP client not initialized")
-        })?;
+        let client = client_opt.ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
         let mut request = client.get(&url);
         if let Some(auth) = self.config.auth_header() {
@@ -309,9 +306,7 @@ impl OpenLinkTransport {
     pub async fn delete_remote_snapshot(&self, snapshot_id: &str) -> anyhow::Result<()> {
         let url = self.api_url(&format!("/api/v1/snapshots/{}", snapshot_id));
         let client_opt = self.client.as_ref().as_ref();
-        let client = client_opt.ok_or_else(|| {
-            anyhow::anyhow!("HTTP client not initialized")
-        })?;
+        let client = client_opt.ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
         let mut request = client.delete(&url);
         if let Some(auth) = self.config.auth_header() {
@@ -360,9 +355,10 @@ impl Transport for OpenLinkTransport {
                 urlencoding::encode(&rel_path)
             );
 
-            let client = client.as_ref().as_ref().ok_or_else(|| {
-                anyhow::anyhow!("HTTP client not initialized")
-            })?;
+            let client = client
+                .as_ref()
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
             let mut request = client.put(&url);
             if let Some(auth) = config.auth_header() {
@@ -412,9 +408,10 @@ impl Transport for OpenLinkTransport {
                 urlencoding::encode(&rel_path)
             );
 
-            let client = client.as_ref().as_ref().ok_or_else(|| {
-                anyhow::anyhow!("HTTP client not initialized")
-            })?;
+            let client = client
+                .as_ref()
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
             let mut request = client.get(&url);
             if let Some(auth) = config.auth_header() {
@@ -465,11 +462,11 @@ impl Transport for OpenLinkTransport {
 
         Box::pin(async move {
             let data = self.download_file(&snapshot_id, &rel_path).await?;
-            
+
             if let Some(parent) = path.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
-            
+
             tokio::fs::write(&path, data).await?;
             Ok(())
         })
@@ -499,9 +496,10 @@ impl Transport for OpenLinkTransport {
                 urlencoding::encode(&rel_path)
             );
 
-            let client = client.as_ref().as_ref().ok_or_else(|| {
-                anyhow::anyhow!("HTTP client not initialized")
-            })?;
+            let client = client
+                .as_ref()
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
             let mut request = client.delete(&url);
             if let Some(auth) = config.auth_header() {
@@ -544,9 +542,10 @@ impl Transport for OpenLinkTransport {
                 snapshot_id
             );
 
-            let client = client.as_ref().as_ref().ok_or_else(|| {
-                anyhow::anyhow!("HTTP client not initialized")
-            })?;
+            let client = client
+                .as_ref()
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
             let mut request = client.get(&url);
             if let Some(auth) = config.auth_header() {
@@ -601,19 +600,16 @@ mod tests {
         let router = StorageRouter::new(backend);
 
         // Critical data should use distributed storage
-        let decision = router.select_storage(
-            1024 * 1024,
-            AccessFrequency::Hot,
-            DurabilityLevel::Critical,
+        let decision =
+            router.select_storage(1024 * 1024, AccessFrequency::Hot, DurabilityLevel::Critical);
+        assert_eq!(
+            decision.storage_type,
+            crate::config::StorageType::Distributed
         );
-        assert_eq!(decision.storage_type, crate::config::StorageType::Distributed);
 
         // Low durability data should use local storage
-        let decision = router.select_storage(
-            1024 * 1024,
-            AccessFrequency::Cold,
-            DurabilityLevel::Low,
-        );
+        let decision =
+            router.select_storage(1024 * 1024, AccessFrequency::Cold, DurabilityLevel::Low);
         assert_eq!(decision.storage_type, crate::config::StorageType::Local);
     }
 
@@ -630,7 +626,7 @@ mod tests {
         let mut stats = TransferStats::default();
         stats.bytes_total = 1000;
         stats.bytes_transferred = 500;
-        
+
         assert!((stats.progress() - 50.0).abs() < 0.01);
     }
 }

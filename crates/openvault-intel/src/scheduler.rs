@@ -5,8 +5,8 @@
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 /// Current network condition at a device.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -154,8 +154,12 @@ impl PartialOrd for ScheduleEntry {
 impl Ord for ScheduleEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // Higher priority first
-        self.priority.cmp(&other.priority)
-            .then_with(|| self.network.quality_score().partial_cmp(&other.network.quality_score()).unwrap_or(Ordering::Equal))
+        self.priority.cmp(&other.priority).then_with(|| {
+            self.network
+                .quality_score()
+                .partial_cmp(&other.network.quality_score())
+                .unwrap_or(Ordering::Equal)
+        })
     }
 }
 
@@ -208,10 +212,8 @@ impl SmartScheduler {
     /// Remove a task by ID.
     pub fn remove(&mut self, id: &str) -> bool {
         let original_len = self.queue.len();
-        let remaining: BinaryHeap<ScheduleEntry> = self.queue
-            .drain()
-            .filter(|e| e.id != id)
-            .collect();
+        let remaining: BinaryHeap<ScheduleEntry> =
+            self.queue.drain().filter(|e| e.id != id).collect();
         self.queue = remaining;
         self.queue.len() < original_len
     }
@@ -292,7 +294,11 @@ impl SmartScheduler {
             ));
         }
 
-        let poor_network = self.queue.iter().filter(|e| e.network.quality_score() < self.min_network_score).count();
+        let poor_network = self
+            .queue
+            .iter()
+            .filter(|e| e.network.quality_score() < self.min_network_score)
+            .count();
         if poor_network > 0 {
             tips.push(format!(
                 "{} task(s) delayed due to poor network conditions.",
@@ -302,10 +308,7 @@ impl SmartScheduler {
 
         let high_priority = self.queue.iter().filter(|e| e.priority >= 3).count();
         if high_priority > 0 {
-            tips.push(format!(
-                "{} high-priority task(s) in queue.",
-                high_priority
-            ));
+            tips.push(format!("{} high-priority task(s) in queue.", high_priority));
         }
 
         if tips.is_empty() {

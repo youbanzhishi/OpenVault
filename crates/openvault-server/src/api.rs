@@ -21,61 +21,64 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Health & Status
         .route("/api/v1/health", get(health_check))
         .route("/api/v1/status", get(system_status))
-        
         // Device Management
         .route("/api/v1/devices", post(register_device))
         .route("/api/v1/devices", get(list_devices))
         .route("/api/v1/devices/:device_id", get(get_device))
         .route("/api/v1/devices/:device_id", delete(unregister_device))
-        .route("/api/v1/devices/:device_id/status", put(update_device_status))
-        .route("/api/v1/devices/:device_id/heartbeat", post(device_heartbeat))
-        .route("/api/v1/devices/:device_id/backups", get(list_device_backups))
-        
+        .route(
+            "/api/v1/devices/:device_id/status",
+            put(update_device_status),
+        )
+        .route(
+            "/api/v1/devices/:device_id/heartbeat",
+            post(device_heartbeat),
+        )
+        .route(
+            "/api/v1/devices/:device_id/backups",
+            get(list_device_backups),
+        )
         // Policy Management
         .route("/api/v1/policies", post(create_policy))
         .route("/api/v1/policies", get(list_policies))
         .route("/api/v1/policies/:policy_id", get(get_policy))
         .route("/api/v1/policies/:policy_id", put(update_policy))
         .route("/api/v1/policies/:policy_id", delete(delete_policy))
-        
         // Backup Operations
         .route("/api/v1/backup", post(trigger_backup))
         .route("/api/v1/backup/:backup_id", get(get_backup_status))
         .route("/api/v1/backup/:backup_id/cancel", post(cancel_backup))
-        
         // Restore Operations
         .route("/api/v1/restore", post(trigger_restore))
         .route("/api/v1/restore/:snapshot_id", get(get_restore_status))
-        
         // Snapshot Management
         .route("/api/v1/snapshots", get(list_snapshots))
         .route("/api/v1/snapshots/:snapshot_id", get(get_snapshot))
         .route("/api/v1/snapshots/:snapshot_id", delete(delete_snapshot))
-        
         // Notifications (Phase 5 config)
         .route("/api/v1/notifications/config", get(get_notification_config))
-        .route("/api/v1/notifications/config", put(update_notification_config))
-        
+        .route(
+            "/api/v1/notifications/config",
+            put(update_notification_config),
+        )
         // Phase 7: Search & AI endpoints
         .route("/api/v1/search", post(search_files))
         .route("/api/v1/restore/ai", post(ai_restore))
         .route("/api/v1/intel/suggestions", get(get_intel_suggestions))
-        
         // Phase 8: Audit
         .route("/api/v1/audit", get(query_audit))
-        
         // Phase 8: Tenants
         .route("/api/v1/tenants", post(create_tenant))
         .route("/api/v1/tenants/:id/usage", get(get_tenant_usage))
-        
         // Phase 8: Compliance
         .route("/api/v1/compliance/check", get(compliance_check))
         .route("/api/v1/compliance/report", get(compliance_report))
-        
         // Phase 8: Notifications (enhanced)
         .route("/api/v1/notifications", get(list_notifications))
-        .route("/api/v1/notifications/rules", post(create_notification_rule))
-        
+        .route(
+            "/api/v1/notifications/rules",
+            post(create_notification_rule),
+        )
         // Add state and middleware
         .with_state(state)
         .layer(cors)

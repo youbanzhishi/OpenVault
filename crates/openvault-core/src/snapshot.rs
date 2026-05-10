@@ -59,11 +59,7 @@ impl Snapshot {
     ) -> Self {
         let created_at = chrono::Utc::now();
         let seq = SNAPSHOT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let id = format!(
-            "snap-{}-{:04}",
-            created_at.format("%Y%m%d%H%M%S"),
-            seq
-        );
+        let id = format!("snap-{}-{:04}", created_at.format("%Y%m%d%H%M%S"), seq);
         Self {
             id,
             created_at,

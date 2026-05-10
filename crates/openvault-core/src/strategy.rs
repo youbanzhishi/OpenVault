@@ -283,11 +283,13 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 fn relative_path(base: &Path, path: &Path) -> VaultResult<String> {
     path.strip_prefix(base)
         .map(|p| p.to_string_lossy().to_string())
-        .map_err(|_| VaultError::BackupFailed(format!(
-            "Cannot compute relative path of {} from {}",
-            path.display(),
-            base.display()
-        )))
+        .map_err(|_| {
+            VaultError::BackupFailed(format!(
+                "Cannot compute relative path of {} from {}",
+                path.display(),
+                base.display()
+            ))
+        })
 }
 
 fn sha256_file(path: &Path) -> VaultResult<String> {

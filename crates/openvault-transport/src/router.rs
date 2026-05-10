@@ -72,13 +72,13 @@ impl StorageRouter {
 
         let estimated_bandwidth_bps = match storage_type {
             StorageType::Local => 100 * 1024 * 1024 * 1024, // 100 GB/s (local disk)
-            StorageType::S3 => 100 * 1024 * 1024,          // 100 MB/s
-            StorageType::OpenLink => 50 * 1024 * 1024,     // 50 MB/s
-            StorageType::Distributed => 200 * 1024 * 1024, // 200 MB/s (parallel)
+            StorageType::S3 => 100 * 1024 * 1024,           // 100 MB/s
+            StorageType::OpenLink => 50 * 1024 * 1024,      // 50 MB/s
+            StorageType::Distributed => 200 * 1024 * 1024,  // 200 MB/s (parallel)
         };
 
         let use_direct = storage_type == StorageType::Local;
-        
+
         let reason = format!(
             "Selected {} storage for {} bytes with {:?} durability requirement",
             storage_type, data_size, required_durability
@@ -148,8 +148,8 @@ impl TransferRouter {
             let bandwidth = match network_quality {
                 NetworkQuality::Excellent => 1000 * 1024 * 1024, // 1 GB/s
                 NetworkQuality::Good => 100 * 1024 * 1024,       // 100 MB/s
-                NetworkQuality::Fair => 10 * 1024 * 1024,       // 10 MB/s
-                NetworkQuality::Poor => 1024 * 1024,           // 1 MB/s
+                NetworkQuality::Fair => 10 * 1024 * 1024,        // 10 MB/s
+                NetworkQuality::Poor => 1024 * 1024,             // 1 MB/s
             };
             (latency, bandwidth, 0.9)
         } else {

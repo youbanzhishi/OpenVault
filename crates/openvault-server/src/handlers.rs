@@ -4,8 +4,8 @@ use crate::auth::AuthManager;
 use crate::error::ServerResult;
 use crate::models::*;
 use crate::services::{
-    AuditService, BackupService, ComplianceSvc, DeviceService, NotificationService,
-    InAppNotificationSvc, PolicyService, TenantSvc,
+    AuditService, BackupService, ComplianceSvc, DeviceService, InAppNotificationSvc,
+    NotificationService, PolicyService, TenantSvc,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -62,17 +62,20 @@ pub async fn health_check() -> &'static str {
 pub async fn system_status(State(state): State<Arc<AppState>>) -> ServerResult<Json<SystemStatus>> {
     let device_service = state.device_service.clone();
     let backup_service = state.backup_service.clone();
-    
+
     let devices = device_service.list().await;
     let snapshots = backup_service.list_snapshots().await;
     let active_backups = backup_service.active_count().await;
-    
+
     let total_storage: u64 = snapshots.iter().map(|s| s.total_size).sum();
-    
+
     let health = if devices.is_empty() {
         SystemHealth::Healthy
     } else {
-        let offline_count = devices.iter().filter(|d| d.status == DeviceStatus::Offline).count();
+        let offline_count = devices
+            .iter()
+            .filter(|d| d.status == DeviceStatus::Offline)
+            .count();
         if offline_count as f32 / devices.len() as f32 > 0.5 {
             SystemHealth::Critical
         } else if offline_count > 0 {
@@ -81,13 +84,13 @@ pub async fn system_status(State(state): State<Arc<AppState>>) -> ServerResult<J
             SystemHealth::Healthy
         }
     };
-    
+
     let uptime = chrono::Utc::now()
         .signed_duration_since(state.start_time)
         .to_std()
         .unwrap_or_default()
         .as_secs();
-    
+
     Ok(Json(SystemStatus {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: uptime,
@@ -133,7 +136,10 @@ pub async fn update_device_status(
     Path(device_id): Path<String>,
     Json(status): Json<DeviceStatus>,
 ) -> ServerResult<Json<Device>> {
-    state.device_service.update_status(&device_id, status).await?;
+    state
+        .device_service
+        .update_status(&device_id, status)
+        .await?;
     state.device_service.get(&device_id).await.map(Json)
 }
 
@@ -143,7 +149,9 @@ pub async fn device_heartbeat(
     Path(device_id): Path<String>,
 ) -> ServerResult<Json<serde_json::Value>> {
     state.device_service.heartbeat(&device_id).await?;
-    Ok(Json(serde_json::json!({ "status": "ok", "timestamp": chrono::Utc::now() })))
+    Ok(Json(
+        serde_json::json!({ "status": "ok", "timestamp": chrono::Utc::now() }),
+    ))
 }
 
 /// DELETE /api/v1/devices/:device_id - Unregister device
@@ -169,7 +177,9 @@ pub async fn create_policy(
 }
 
 /// GET /api/v1/policies - List all policies
-pub async fn list_policies(State(state): State<Arc<AppState>>) -> ServerResult<Json<Vec<BackupPolicy>>> {
+pub async fn list_policies(
+    State(state): State<Arc<AppState>>,
+) -> ServerResult<Json<Vec<BackupPolicy>>> {
     let policies = state.policy_service.list().await;
     Ok(Json(policies))
 }
@@ -219,27 +229,30 @@ pub async fn trigger_backup(
     Json(request): Json<TriggerBackupRequest>,
 ) -> ServerResult<Json<BackupStatus>> {
     let backup = state.backup_service.create_backup(&request.device_id).await;
-    
+
     // Audit log
     let mut meta = HashMap::new();
     meta.insert("device_id".into(), request.device_id.clone());
     if let Some(ref pid) = request.policy_id {
         meta.insert("policy_id".into(), pid.clone());
     }
-    let _ = state.audit_service.append(
-        &request.device_id,
-        AuditOperation::BackupStarted,
-        &backup.backup_id,
-        AuditResult::Success,
-        meta,
-    ).await;
+    let _ = state
+        .audit_service
+        .append(
+            &request.device_id,
+            AuditOperation::BackupStarted,
+            &backup.backup_id,
+            AuditResult::Success,
+            meta,
+        )
+        .await;
 
     tracing::info!(
         backup_id = %backup.backup_id,
         device_id = %request.device_id,
         "Backup triggered"
     );
-    
+
     Ok(Json(backup))
 }
 
@@ -279,14 +292,17 @@ pub async fn trigger_restore(
     State(state): State<Arc<AppState>>,
     Json(request): Json<RestoreRequest>,
 ) -> ServerResult<Json<serde_json::Value>> {
-    let _snapshot = state.backup_service.get_snapshot(&request.snapshot_id).await?;
-    
+    let _snapshot = state
+        .backup_service
+        .get_snapshot(&request.snapshot_id)
+        .await?;
+
     tracing::info!(
         snapshot_id = %request.snapshot_id,
         target_device = ?request.target_device_id,
         "Restore triggered"
     );
-    
+
     Ok(Json(serde_json::json!({
         "status": "started",
         "snapshot_id": request.snapshot_id,
@@ -300,7 +316,7 @@ pub async fn get_restore_status(
     Path(snapshot_id): Path<String>,
 ) -> ServerResult<Json<serde_json::Value>> {
     let snapshot = state.backup_service.get_snapshot(&snapshot_id).await?;
-    
+
     Ok(Json(serde_json::json!({
         "snapshot_id": snapshot.id,
         "source": snapshot.source,
@@ -315,7 +331,9 @@ pub async fn get_restore_status(
 // ============================================================================
 
 /// GET /api/v1/snapshots - List all snapshots
-pub async fn list_snapshots(State(state): State<Arc<AppState>>) -> ServerResult<Json<Vec<openvault_core::snapshot::Snapshot>>> {
+pub async fn list_snapshots(
+    State(state): State<Arc<AppState>>,
+) -> ServerResult<Json<Vec<openvault_core::snapshot::Snapshot>>> {
     let snapshots = state.backup_service.list_snapshots().await;
     Ok(Json(snapshots))
 }
@@ -366,8 +384,8 @@ pub async fn get_notification_config(
 // Phase 7: Search & AI Handlers
 // ============================================================================
 
-use openvault_core::search::FileIndex;
 use openvault_core::restore::NaturalLanguageQuery;
+use openvault_core::search::FileIndex;
 
 /// GET /api/v1/intel/suggestions — Return AI intelligence suggestions.
 pub async fn get_intel_suggestions(
@@ -407,7 +425,8 @@ pub async fn get_intel_suggestions(
     ];
 
     let scheduling = vec![
-        "Schedule backups during off-peak hours (22:00-06:00) to minimize bandwidth impact.".to_string(),
+        "Schedule backups during off-peak hours (22:00-06:00) to minimize bandwidth impact."
+            .to_string(),
         "Prioritize code and config files for real-time backup.".to_string(),
         "Consider backing up photos daily rather than in real-time.".to_string(),
     ];
@@ -432,16 +451,17 @@ pub async fn search_files(
 ) -> ServerResult<Json<serde_json::Value>> {
     let index = FileIndex::new();
     let results = index.search_keyword(&request.query);
-    let items: Vec<SearchResponseItem> = results.into_iter().map(|r| {
-        SearchResponseItem {
+    let items: Vec<SearchResponseItem> = results
+        .into_iter()
+        .map(|r| SearchResponseItem {
             path: r.path,
             snippet: r.snippet,
             relevance: r.relevance,
             tags: r.tags,
             size: r.size,
             modified_at: r.modified_at,
-        }
-    }).collect();
+        })
+        .collect();
     Ok(Json(serde_json::json!({
         "query": request.query,
         "results": items,
@@ -525,13 +545,16 @@ pub async fn create_tenant(
     // Audit
     let mut meta = HashMap::new();
     meta.insert("name".into(), req.name.clone());
-    let _ = state.audit_service.append(
-        "system",
-        AuditOperation::TenantCreated,
-        &tenant.tenant_id,
-        AuditResult::Success,
-        meta,
-    ).await;
+    let _ = state
+        .audit_service
+        .append(
+            "system",
+            AuditOperation::TenantCreated,
+            &tenant.tenant_id,
+            AuditResult::Success,
+            meta,
+        )
+        .await;
     Ok(Json(serde_json::to_value(tenant).unwrap_or_default()))
 }
 
@@ -553,28 +576,31 @@ pub async fn compliance_check(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ComplianceCheckRequest>,
 ) -> ServerResult<Json<ComplianceReportResponse>> {
-    let report = state.compliance_service.check(
-        &params.path,
-        &params.region,
-        params.policy_retention_days,
-    ).await;
+    let report = state
+        .compliance_service
+        .check(&params.path, &params.region, params.policy_retention_days)
+        .await;
 
     // Audit
     let mut meta = HashMap::new();
     meta.insert("path".into(), params.path.clone());
     meta.insert("region".into(), params.region.clone());
-    let audit_result = if report.overall_status == openvault_core::compliance::ComplianceStatus::Pass {
-        AuditResult::Success
-    } else {
-        AuditResult::Failure
-    };
-    let _ = state.audit_service.append(
-        "system",
-        AuditOperation::ComplianceCheck,
-        &params.path,
-        audit_result,
-        meta,
-    ).await;
+    let audit_result =
+        if report.overall_status == openvault_core::compliance::ComplianceStatus::Pass {
+            AuditResult::Success
+        } else {
+            AuditResult::Failure
+        };
+    let _ = state
+        .audit_service
+        .append(
+            "system",
+            AuditOperation::ComplianceCheck,
+            &params.path,
+            audit_result,
+            meta,
+        )
+        .await;
 
     Ok(Json(ComplianceReportResponse {
         timestamp: report.timestamp,
@@ -582,14 +608,18 @@ pub async fn compliance_check(
         rules_checked: report.rules_checked,
         rules_passed: report.rules_passed,
         rules_failed: report.rules_failed,
-        findings: report.findings.into_iter().map(|f| ComplianceFindingResponse {
-            rule_id: f.rule_id,
-            rule_name: f.rule_name,
-            severity: format!("{:?}", f.severity).to_lowercase(),
-            resource: f.resource,
-            message: f.message,
-            detail: f.detail,
-        }).collect(),
+        findings: report
+            .findings
+            .into_iter()
+            .map(|f| ComplianceFindingResponse {
+                rule_id: f.rule_id,
+                rule_name: f.rule_name,
+                severity: format!("{:?}", f.severity).to_lowercase(),
+                resource: f.resource,
+                message: f.message,
+                detail: f.detail,
+            })
+            .collect(),
     }))
 }
 
@@ -624,19 +654,27 @@ pub async fn create_notification_rule(
         Some("critical") => Severity::Critical,
         _ => Severity::Info,
     };
-    let channels: Vec<Channel> = req.channels.iter().map(|c| match c.as_str() {
-        "webhook" => Channel::Webhook,
-        "email" => Channel::Email,
-        _ => Channel::InApp,
-    }).collect();
-    let notification_types: Vec<NotificationType> = req.notification_types.iter().map(|t| match t.as_str() {
-        "backup_completed" => NotificationType::BackupCompleted,
-        "backup_failed" => NotificationType::BackupFailed,
-        "compliance_violation" => NotificationType::ComplianceViolation,
-        "quota_warning" => NotificationType::QuotaWarning,
-        "risk_warning" => NotificationType::RiskWarning,
-        _ => NotificationType::Custom(t.clone()),
-    }).collect();
+    let channels: Vec<Channel> = req
+        .channels
+        .iter()
+        .map(|c| match c.as_str() {
+            "webhook" => Channel::Webhook,
+            "email" => Channel::Email,
+            _ => Channel::InApp,
+        })
+        .collect();
+    let notification_types: Vec<NotificationType> = req
+        .notification_types
+        .iter()
+        .map(|t| match t.as_str() {
+            "backup_completed" => NotificationType::BackupCompleted,
+            "backup_failed" => NotificationType::BackupFailed,
+            "compliance_violation" => NotificationType::ComplianceViolation,
+            "quota_warning" => NotificationType::QuotaWarning,
+            "risk_warning" => NotificationType::RiskWarning,
+            _ => NotificationType::Custom(t.clone()),
+        })
+        .collect();
 
     let rule = NotificationRule {
         rule_id: uuid::Uuid::new_v4().to_string(),
@@ -650,5 +688,7 @@ pub async fn create_notification_rule(
     };
     let rule_id = rule.rule_id.clone();
     state.notification_svc.set_rule(rule).await;
-    Ok(Json(serde_json::json!({ "rule_id": rule_id, "status": "created" })))
+    Ok(Json(
+        serde_json::json!({ "rule_id": rule_id, "status": "created" }),
+    ))
 }

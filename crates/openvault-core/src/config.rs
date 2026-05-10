@@ -179,7 +179,9 @@ storage:
 "#;
         let config = BackupConfig::load_from_str(yaml).unwrap();
         match config.storage {
-            StorageConfig::R2 { bucket, account_id, .. } => {
+            StorageConfig::R2 {
+                bucket, account_id, ..
+            } => {
                 assert_eq!(bucket, "my-r2-bucket");
                 assert_eq!(account_id, "abc123def456");
             }

@@ -66,7 +66,9 @@ async fn main() -> Result<()> {
     info!("Starting OpenVault Server v{}", env!("CARGO_PKG_VERSION"));
 
     // Get JWT secret from args or environment
-    let jwt_secret = args.jwt_secret.clone()
+    let jwt_secret = args
+        .jwt_secret
+        .clone()
         .or_else(|| std::env::var("OPENVault_JWT_SECRET").ok())
         .unwrap_or_else(|| {
             // Generate a random secret for development

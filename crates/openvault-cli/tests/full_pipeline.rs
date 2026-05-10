@@ -30,7 +30,11 @@ fn setup_source_dir() -> tempfile::TempDir {
     dir
 }
 
-fn make_config(source: &std::path::Path, vault: &std::path::Path, strategy: BackupStrategy) -> BackupConfig {
+fn make_config(
+    source: &std::path::Path,
+    vault: &std::path::Path,
+    strategy: BackupStrategy,
+) -> BackupConfig {
     BackupConfig {
         name: "integration-test".into(),
         source: source.to_path_buf(),
@@ -69,7 +73,11 @@ fn test_full_pipeline_with_all_strategies() {
     let inc_config = make_config(source.path(), vault.path(), BackupStrategy::Incremental);
     let inc_engine = engine_for_strategy(&BackupStrategy::Incremental);
     let inc_snap = inc_engine.execute(&inc_config, &storage).unwrap();
-    assert_eq!(inc_snap.file_count(), 1, "Incremental should detect 1 changed file");
+    assert_eq!(
+        inc_snap.file_count(),
+        1,
+        "Incremental should detect 1 changed file"
+    );
     assert_eq!(inc_snap.entries[0].path, "b.txt");
     assert_eq!(inc_snap.parent_id, Some(full_snap.id.clone()));
 
@@ -92,7 +100,9 @@ fn test_full_pipeline_with_all_strategies() {
 
     // Step 6: Restore from full backup
     let restore_dir = tempfile::TempDir::new().unwrap();
-    storage.restore_snapshot(&full_snap, restore_dir.path()).unwrap();
+    storage
+        .restore_snapshot(&full_snap, restore_dir.path())
+        .unwrap();
     assert_eq!(
         fs::read_to_string(restore_dir.path().join("a.txt")).unwrap(),
         "hello from a"
@@ -117,7 +127,9 @@ fn test_full_backup_and_restore() {
     assert_eq!(snapshot.strategy, BackupStrategy::Full);
 
     let restore_dir = tempfile::TempDir::new().unwrap();
-    storage.restore_snapshot(&snapshot, restore_dir.path()).unwrap();
+    storage
+        .restore_snapshot(&snapshot, restore_dir.path())
+        .unwrap();
 
     assert_eq!(
         fs::read_to_string(restore_dir.path().join("a.txt")).unwrap(),
@@ -139,10 +151,12 @@ fn test_incremental_backup_only_changed_files() {
     let full_engine = engine_for_strategy(&BackupStrategy::Full);
     let inc_engine = engine_for_strategy(&BackupStrategy::Incremental);
 
-    let full_snap = full_engine.execute(
-        &make_config(source.path(), vault.path(), BackupStrategy::Full),
-        &storage,
-    ).unwrap();
+    let full_snap = full_engine
+        .execute(
+            &make_config(source.path(), vault.path(), BackupStrategy::Full),
+            &storage,
+        )
+        .unwrap();
     assert_eq!(full_snap.file_count(), 3);
 
     let inc1 = inc_engine.execute(&config, &storage).unwrap();
@@ -173,10 +187,12 @@ fn test_differential_compares_to_full() {
 
     // Incremental (only b changed)
     let inc_engine = engine_for_strategy(&BackupStrategy::Incremental);
-    let inc_snap = inc_engine.execute(
-        &make_config(source.path(), vault.path(), BackupStrategy::Incremental),
-        &storage,
-    ).unwrap();
+    let inc_snap = inc_engine
+        .execute(
+            &make_config(source.path(), vault.path(), BackupStrategy::Incremental),
+            &storage,
+        )
+        .unwrap();
     assert_eq!(inc_snap.file_count(), 1);
 
     // Modify a.txt
@@ -185,10 +201,12 @@ fn test_differential_compares_to_full() {
 
     // Differential should compare against the full, not the incremental
     let diff_engine = engine_for_strategy(&BackupStrategy::Differential);
-    let diff_snap = diff_engine.execute(
-        &make_config(source.path(), vault.path(), BackupStrategy::Differential),
-        &storage,
-    ).unwrap();
+    let diff_snap = diff_engine
+        .execute(
+            &make_config(source.path(), vault.path(), BackupStrategy::Differential),
+            &storage,
+        )
+        .unwrap();
     // Both a.txt and b.txt changed since full
     assert!(diff_snap.file_count() >= 2);
 }
@@ -208,7 +226,8 @@ fn test_verify_snapshot_integrity() {
     let snapshot = engine.execute(&config, &storage).unwrap();
 
     // Verify using RestoreEngine
-    let restore_engine = RestoreEngine::new(std::sync::Arc::new(storage) as std::sync::Arc<dyn VaultStorage>);
+    let restore_engine =
+        RestoreEngine::new(std::sync::Arc::new(storage) as std::sync::Arc<dyn VaultStorage>);
     let rt = tokio::runtime::Runtime::new().unwrap();
     let report = rt.block_on(restore_engine.verify(&snapshot)).unwrap();
     assert!(report.is_ok());
@@ -249,17 +268,23 @@ fn test_latest_full_snapshot() {
     let full_engine = engine_for_strategy(&BackupStrategy::Full);
     let inc_engine = engine_for_strategy(&BackupStrategy::Incremental);
 
-    let full_snap = full_engine.execute(
-        &make_config(source.path(), vault.path(), BackupStrategy::Full),
-        &storage,
-    ).unwrap();
+    let full_snap = full_engine
+        .execute(
+            &make_config(source.path(), vault.path(), BackupStrategy::Full),
+            &storage,
+        )
+        .unwrap();
 
-    let _inc_snap = inc_engine.execute(
-        &make_config(source.path(), vault.path(), BackupStrategy::Incremental),
-        &storage,
-    ).unwrap();
+    let _inc_snap = inc_engine
+        .execute(
+            &make_config(source.path(), vault.path(), BackupStrategy::Incremental),
+            &storage,
+        )
+        .unwrap();
 
-    let latest_full = storage.latest_full_snapshot(source.path().to_string_lossy().to_string()).unwrap();
+    let latest_full = storage
+        .latest_full_snapshot(source.path().to_string_lossy().to_string())
+        .unwrap();
     assert!(latest_full.is_some());
     assert_eq!(latest_full.unwrap().id, full_snap.id);
 }
@@ -282,7 +307,9 @@ fn test_321_policy_single_local_violates() {
     let policy = Policy321::strict();
     let policy_engine = PolicyEngine::new(policy);
     let source_key = source.path().to_string_lossy().to_string();
-    let health = policy_engine.check_health(&source_key, &[&storage]).unwrap();
+    let health = policy_engine
+        .check_health(&source_key, &[&storage])
+        .unwrap();
 
     assert!(!health.healthy);
     assert!(health.copies < 3);
@@ -304,7 +331,9 @@ fn test_321_policy_relaxed_single_local_passes() {
     let policy = Policy321::relaxed();
     let policy_engine = PolicyEngine::new(policy);
     let source_key = source.path().to_string_lossy().to_string();
-    let health = policy_engine.check_health(&source_key, &[&storage]).unwrap();
+    let health = policy_engine
+        .check_health(&source_key, &[&storage])
+        .unwrap();
 
     assert!(health.healthy);
     assert_eq!(health.copies, 1);
@@ -333,7 +362,9 @@ fn test_321_policy_multi_storage() {
     let policy = Policy321::strict();
     let policy_engine = PolicyEngine::new(policy);
     let source_key = source.path().to_string_lossy().to_string();
-    let health = policy_engine.check_health(&source_key, &[&storage1, &storage2]).unwrap();
+    let health = policy_engine
+        .check_health(&source_key, &[&storage1, &storage2])
+        .unwrap();
 
     assert!(!health.healthy); // No offsite copy
     assert_eq!(health.copies, 2);
@@ -372,7 +403,9 @@ fn test_healing_detects_corruption() {
     let snap = engine.execute(&config, &storage).unwrap();
 
     // Corrupt one file by overwriting it with different data
-    storage.store_file(&snap.id, "b.txt", b"corrupted data").unwrap();
+    storage
+        .store_file(&snap.id, "b.txt", b"corrupted data")
+        .unwrap();
 
     let result = HealingEngine::scan(&storage, &snap).unwrap();
     assert!(!result.is_all_healthy());
@@ -398,12 +431,18 @@ fn test_healing_repairs_from_healthy_replica() {
     // Copy snapshot to corrupt storage
     corrupt_storage.store_snapshot(&snap).unwrap();
     for entry in &snap.entries {
-        let data = healthy_storage.retrieve_file(&snap.id, &entry.path).unwrap();
-        corrupt_storage.store_file(&snap.id, &entry.path, &data).unwrap();
+        let data = healthy_storage
+            .retrieve_file(&snap.id, &entry.path)
+            .unwrap();
+        corrupt_storage
+            .store_file(&snap.id, &entry.path, &data)
+            .unwrap();
     }
 
     // Corrupt one file
-    corrupt_storage.store_file(&snap.id, "b.txt", b"corrupted!!!").unwrap();
+    corrupt_storage
+        .store_file(&snap.id, "b.txt", b"corrupted!!!")
+        .unwrap();
 
     // Verify corruption detected
     let scan = HealingEngine::scan(&corrupt_storage, &snap).unwrap();

@@ -1,12 +1,12 @@
 //! Server error types
 
-use thiserror::Error;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use serde_json::json;
+use thiserror::Error;
 
 /// Server error types
 #[derive(Error, Debug)]

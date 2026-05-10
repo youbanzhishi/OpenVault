@@ -56,7 +56,6 @@ pub trait VaultStorage: Send + Sync {
     fn restore_snapshot(&self, snapshot: &Snapshot, target: &std::path::Path) -> VaultResult<()>;
 }
 
-
 // Blanket impl: allow &dyn VaultStorage where VaultStorage is expected
 // This is needed because iterators over Vec<Box<dyn VaultStorage>> yield &Box<dyn VaultStorage>
 // which auto-derefs to &dyn VaultStorage, but functions expect impl VaultStorage

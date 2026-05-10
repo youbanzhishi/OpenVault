@@ -41,13 +41,21 @@ pub struct Policy321 {
     pub name: String,
 }
 
-fn default_copies() -> u32 { 3 }
-fn default_media_types() -> u32 { 2 }
-fn default_offsite() -> bool { true }
+fn default_copies() -> u32 {
+    3
+}
+fn default_media_types() -> u32 {
+    2
+}
+fn default_offsite() -> bool {
+    true
+}
 fn default_offsite_backends() -> Vec<String> {
     vec!["s3".to_string(), "r2".to_string(), "openlink".to_string()]
 }
-fn default_policy_name() -> String { "3-2-1-default".to_string() }
+fn default_policy_name() -> String {
+    "3-2-1-default".to_string()
+}
 
 impl Default for Policy321 {
     fn default() -> Self {
@@ -121,8 +129,10 @@ impl PolicyHealth {
         if self.healthy {
             format!(
                 "✅ Policy satisfied: {}/{} copies, {}/{} media types, offsite={}",
-                self.copies, self.copies_required,
-                self.media_types, self.media_types_required,
+                self.copies,
+                self.copies_required,
+                self.media_types,
+                self.media_types_required,
                 if self.has_offsite { "yes" } else { "n/a" }
             )
         } else {
@@ -314,7 +324,12 @@ impl PolicyEngine {
         source_storage: &dyn VaultStorage,
         target_storages: &[&dyn VaultStorage],
     ) -> VaultResult<u32> {
-        let health = self.check_health(source, &std::iter::once(source_storage).chain(target_storages.iter().copied()).collect::<Vec<_>>())?;
+        let health = self.check_health(
+            source,
+            &std::iter::once(source_storage)
+                .chain(target_storages.iter().copied())
+                .collect::<Vec<_>>(),
+        )?;
 
         if health.healthy {
             return Ok(0);
@@ -325,7 +340,9 @@ impl PolicyEngine {
         // Find the latest snapshot from the source storage
         let snapshot = source_storage
             .latest_snapshot(source.to_string())?
-            .ok_or_else(|| VaultError::PolicyViolation("No snapshot found to remediate".to_string()))?;
+            .ok_or_else(|| {
+                VaultError::PolicyViolation("No snapshot found to remediate".to_string())
+            })?;
 
         // Copy snapshot to target storages that don't have it
         for target in target_storages {
@@ -358,7 +375,12 @@ mod tests {
     use crate::snapshot::{BackupStrategy, FileEntry, Snapshot};
     use tempfile::TempDir;
 
-    fn make_snapshot(id: &str, source: &str, strategy: BackupStrategy, entries: Vec<FileEntry>) -> Snapshot {
+    fn make_snapshot(
+        id: &str,
+        source: &str,
+        strategy: BackupStrategy,
+        entries: Vec<FileEntry>,
+    ) -> Snapshot {
         let mut snap = Snapshot::new(strategy, source.to_string(), "local".into(), None);
         snap.id = id.to_string();
         for e in entries {
@@ -422,12 +444,10 @@ mod tests {
             has_offsite: false,
             offsite_required: true,
             backend_names: vec!["local".to_string()],
-            violations: vec![
-                PolicyViolation {
-                    violation_type: ViolationType::InsufficientCopies,
-                    message: "Only 1 copies exist, need 3".to_string(),
-                },
-            ],
+            violations: vec![PolicyViolation {
+                violation_type: ViolationType::InsufficientCopies,
+                message: "Only 1 copies exist, need 3".to_string(),
+            }],
             remediation: vec![],
         };
         assert!(!health.healthy);

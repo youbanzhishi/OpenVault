@@ -279,14 +279,16 @@ impl AuditLog {
 
     /// Export all matching entries as JSON string.
     pub fn export_json(&self, q: &AuditQuery) -> VaultResult<String> {
-        let filtered: Vec<&AuditEntry> = self.entries.iter().rev().filter(|e| q.matches(e)).collect();
+        let filtered: Vec<&AuditEntry> =
+            self.entries.iter().rev().filter(|e| q.matches(e)).collect();
         serde_json::to_string_pretty(&filtered)
             .map_err(|e| VaultError::BackupFailed(format!("JSON export failed: {}", e)))
     }
 
     /// Export all matching entries as CSV string.
     pub fn export_csv(&self, q: &AuditQuery) -> VaultResult<String> {
-        let filtered: Vec<&AuditEntry> = self.entries.iter().rev().filter(|e| q.matches(e)).collect();
+        let filtered: Vec<&AuditEntry> =
+            self.entries.iter().rev().filter(|e| q.matches(e)).collect();
         let mut w = String::from("seq,timestamp,user_id,operation,target,result,hash\n");
         for e in &filtered {
             w.push_str(&format!(
@@ -450,23 +452,58 @@ mod tests {
     fn test_append_and_len() {
         let mut log = AuditLog::default();
         assert!(log.is_empty());
-        log.append("user1", AuditOperation::BackupStarted, "snap1", AuditResult::Success, HashMap::new()).unwrap();
+        log.append(
+            "user1",
+            AuditOperation::BackupStarted,
+            "snap1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
         assert_eq!(log.len(), 1);
     }
 
     #[test]
     fn test_hash_chain_integrity() {
         let mut log = AuditLog::default();
-        log.append("user1", AuditOperation::BackupStarted, "snap1", AuditResult::Success, HashMap::new()).unwrap();
-        log.append("user1", AuditOperation::BackupCompleted, "snap1", AuditResult::Success, HashMap::new()).unwrap();
-        log.append("user2", AuditOperation::DeleteSnapshot, "snap1", AuditResult::Success, HashMap::new()).unwrap();
+        log.append(
+            "user1",
+            AuditOperation::BackupStarted,
+            "snap1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
+        log.append(
+            "user1",
+            AuditOperation::BackupCompleted,
+            "snap1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
+        log.append(
+            "user2",
+            AuditOperation::DeleteSnapshot,
+            "snap1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
         assert!(log.verify_chain().unwrap());
     }
 
     #[test]
     fn test_tamper_detection() {
         let mut log = AuditLog::default();
-        log.append("user1", AuditOperation::BackupStarted, "snap1", AuditResult::Success, HashMap::new()).unwrap();
+        log.append(
+            "user1",
+            AuditOperation::BackupStarted,
+            "snap1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
         // Tamper
         log.entries[0].user_id = "hacker".to_string();
         assert!(log.verify_chain().is_err());
@@ -475,9 +512,30 @@ mod tests {
     #[test]
     fn test_query_by_user() {
         let mut log = AuditLog::default();
-        log.append("alice", AuditOperation::BackupStarted, "s1", AuditResult::Success, HashMap::new()).unwrap();
-        log.append("bob", AuditOperation::BackupCompleted, "s2", AuditResult::Success, HashMap::new()).unwrap();
-        log.append("alice", AuditOperation::RestoreStarted, "s1", AuditResult::Success, HashMap::new()).unwrap();
+        log.append(
+            "alice",
+            AuditOperation::BackupStarted,
+            "s1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
+        log.append(
+            "bob",
+            AuditOperation::BackupCompleted,
+            "s2",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
+        log.append(
+            "alice",
+            AuditOperation::RestoreStarted,
+            "s1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
 
         let q = AuditQuery::new().user_id("alice");
         let res = log.query(&q);
@@ -487,9 +545,30 @@ mod tests {
     #[test]
     fn test_query_by_operation() {
         let mut log = AuditLog::default();
-        log.append("alice", AuditOperation::BackupStarted, "s1", AuditResult::Success, HashMap::new()).unwrap();
-        log.append("alice", AuditOperation::BackupCompleted, "s1", AuditResult::Success, HashMap::new()).unwrap();
-        log.append("bob", AuditOperation::RestoreStarted, "s1", AuditResult::Success, HashMap::new()).unwrap();
+        log.append(
+            "alice",
+            AuditOperation::BackupStarted,
+            "s1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
+        log.append(
+            "alice",
+            AuditOperation::BackupCompleted,
+            "s1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
+        log.append(
+            "bob",
+            AuditOperation::RestoreStarted,
+            "s1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
 
         let q = AuditQuery::new().operation(AuditOperation::BackupStarted);
         let res = log.query(&q);
@@ -500,7 +579,14 @@ mod tests {
     fn test_query_pagination() {
         let mut log = AuditLog::default();
         for i in 0..10u64 {
-            log.append("user", AuditOperation::BackupStarted, &format!("s{}", i), AuditResult::Success, HashMap::new()).unwrap();
+            log.append(
+                "user",
+                AuditOperation::BackupStarted,
+                &format!("s{}", i),
+                AuditResult::Success,
+                HashMap::new(),
+            )
+            .unwrap();
         }
         let q = AuditQuery::new().paginate(0, 3);
         let res = log.query(&q);
@@ -511,7 +597,14 @@ mod tests {
     #[test]
     fn test_export_csv() {
         let mut log = AuditLog::default();
-        log.append("user1", AuditOperation::BackupStarted, "s1", AuditResult::Success, HashMap::new()).unwrap();
+        log.append(
+            "user1",
+            AuditOperation::BackupStarted,
+            "s1",
+            AuditResult::Success,
+            HashMap::new(),
+        )
+        .unwrap();
         let csv = log.export_csv(&AuditQuery::new()).unwrap();
         assert!(csv.starts_with("seq,timestamp"));
         assert!(csv.contains("user1"));
@@ -523,7 +616,14 @@ mod tests {
         rot.max_entries = 5;
         let mut log = AuditLog::new(rot);
         for i in 0..10u64 {
-            log.append("user", AuditOperation::Custom(format!("op{}", i)), &format!("t{}", i), AuditResult::Success, HashMap::new()).unwrap();
+            log.append(
+                "user",
+                AuditOperation::Custom(format!("op{}", i)),
+                &format!("t{}", i),
+                AuditResult::Success,
+                HashMap::new(),
+            )
+            .unwrap();
         }
         // After exceeding max_entries (5), half should be archived
         assert!(log.archived_segments() > 0);
@@ -533,9 +633,25 @@ mod tests {
     #[test]
     fn test_prev_hash_chain() {
         let mut log = AuditLog::default();
-        let e1 = log.append("u1", AuditOperation::BackupStarted, "s1", AuditResult::Success, HashMap::new()).unwrap();
+        let e1 = log
+            .append(
+                "u1",
+                AuditOperation::BackupStarted,
+                "s1",
+                AuditResult::Success,
+                HashMap::new(),
+            )
+            .unwrap();
         let e1_hash = e1.hash.clone();
-        let e2 = log.append("u1", AuditOperation::BackupCompleted, "s1", AuditResult::Success, HashMap::new()).unwrap();
+        let e2 = log
+            .append(
+                "u1",
+                AuditOperation::BackupCompleted,
+                "s1",
+                AuditResult::Success,
+                HashMap::new(),
+            )
+            .unwrap();
         assert_eq!(e2.prev_hash, e1_hash);
         // Genesis entry has empty prev_hash
         assert!(log.get(1).unwrap().prev_hash.is_empty());

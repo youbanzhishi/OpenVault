@@ -116,7 +116,10 @@ mod tests {
             Some("secret".to_string()),
         );
         // The inner S3 storage should have the R2 endpoint
-        assert_eq!(r2.inner.endpoint, "https://myaccount123.r2.cloudflarestorage.com");
+        assert_eq!(
+            r2.inner.endpoint,
+            "https://myaccount123.r2.cloudflarestorage.com"
+        );
         assert_eq!(r2.inner.region, "auto");
     }
 }

@@ -10,16 +10,18 @@ use crate::snapshot::Snapshot;
 /// on "local" vs "remote" — that is the storage layer's job.
 pub trait BackupEngine: Send + Sync {
     /// Execute a backup and return the resulting snapshot.
-    fn execute(&self, config: &BackupConfig, storage: &dyn crate::storage::VaultStorage) -> VaultResult<Snapshot>;
+    fn execute(
+        &self,
+        config: &BackupConfig,
+        storage: &dyn crate::storage::VaultStorage,
+    ) -> VaultResult<Snapshot>;
 
     /// Human-readable name of this strategy.
     fn name(&self) -> &str;
 }
 
 /// Factory: select a backup engine by strategy name.
-pub fn engine_for_strategy(
-    strategy: &crate::snapshot::BackupStrategy,
-) -> Box<dyn BackupEngine> {
+pub fn engine_for_strategy(strategy: &crate::snapshot::BackupStrategy) -> Box<dyn BackupEngine> {
     use crate::strategy::{DifferentialBackup, FullBackup, IncrementalBackup};
     match strategy {
         crate::snapshot::BackupStrategy::Full => Box::new(FullBackup),

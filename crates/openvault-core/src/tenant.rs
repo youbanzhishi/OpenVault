@@ -153,7 +153,12 @@ impl TenantManager {
     }
 
     /// Update a tenant.
-    pub fn update_tenant(&mut self, tenant_id: &str, name: Option<&str>, quota: Option<TenantQuota>) -> VaultResult<Tenant> {
+    pub fn update_tenant(
+        &mut self,
+        tenant_id: &str,
+        name: Option<&str>,
+        quota: Option<TenantQuota>,
+    ) -> VaultResult<Tenant> {
         let tenant = self
             .tenants
             .get_mut(tenant_id)
@@ -192,7 +197,10 @@ impl TenantManager {
     /// Update usage for a tenant.
     pub fn update_usage(&mut self, tenant_id: &str, usage: TenantUsage) -> VaultResult<()> {
         if !self.tenants.contains_key(tenant_id) {
-            return Err(VaultError::Config(format!("Tenant {} not found", tenant_id)));
+            return Err(VaultError::Config(format!(
+                "Tenant {} not found",
+                tenant_id
+            )));
         }
         self.usage.insert(tenant_id.to_string(), usage);
         Ok(())
@@ -247,11 +255,7 @@ pub fn role_permissions(role: &Role) -> Vec<Permission> {
             Permission::Policy,
             Permission::Admin,
         ],
-        Role::Operator => vec![
-            Permission::Backup,
-            Permission::Restore,
-            Permission::Delete,
-        ],
+        Role::Operator => vec![Permission::Backup, Permission::Restore, Permission::Delete],
         Role::Viewer => vec![Permission::Restore],
     }
 }
@@ -356,7 +360,9 @@ mod tests {
     #[test]
     fn test_create_tenant() {
         let mut mgr = TenantManager::new();
-        let t = mgr.create_tenant("Acme Corp", TenantQuota::default()).unwrap();
+        let t = mgr
+            .create_tenant("Acme Corp", TenantQuota::default())
+            .unwrap();
         assert_eq!(t.name, "Acme Corp");
         assert!(t.enabled);
     }
@@ -364,11 +370,16 @@ mod tests {
     #[test]
     fn test_tenant_quota_check() {
         let mut mgr = TenantManager::new();
-        let t = mgr.create_tenant("test", TenantQuota {
-            max_storage_bytes: 1000,
-            max_files: 10,
-            max_copies: 0,
-        }).unwrap();
+        let t = mgr
+            .create_tenant(
+                "test",
+                TenantQuota {
+                    max_storage_bytes: 1000,
+                    max_files: 10,
+                    max_copies: 0,
+                },
+            )
+            .unwrap();
         let result = mgr.check_quota(&t.tenant_id).unwrap();
         assert!(result.within_quota);
     }
@@ -376,19 +387,31 @@ mod tests {
     #[test]
     fn test_tenant_quota_violation() {
         let mut mgr = TenantManager::new();
-        let t = mgr.create_tenant("test", TenantQuota {
-            max_storage_bytes: 100,
-            max_files: 0,
-            max_copies: 0,
-        }).unwrap();
-        mgr.update_usage(&t.tenant_id, TenantUsage {
-            storage_bytes: 200,
-            file_count: 5,
-            copy_count: 1,
-        }).unwrap();
+        let t = mgr
+            .create_tenant(
+                "test",
+                TenantQuota {
+                    max_storage_bytes: 100,
+                    max_files: 0,
+                    max_copies: 0,
+                },
+            )
+            .unwrap();
+        mgr.update_usage(
+            &t.tenant_id,
+            TenantUsage {
+                storage_bytes: 200,
+                file_count: 5,
+                copy_count: 1,
+            },
+        )
+        .unwrap();
         let result = mgr.check_quota(&t.tenant_id).unwrap();
         assert!(!result.within_quota);
-        assert!(result.violations.iter().any(|v| v.kind == QuotaKind::Storage));
+        assert!(result
+            .violations
+            .iter()
+            .any(|v| v.kind == QuotaKind::Storage));
     }
 
     #[test]
@@ -427,7 +450,9 @@ mod tests {
     #[test]
     fn test_delete_tenant() {
         let mut mgr = TenantManager::new();
-        let t = mgr.create_tenant("to-delete", TenantQuota::default()).unwrap();
+        let t = mgr
+            .create_tenant("to-delete", TenantQuota::default())
+            .unwrap();
         assert!(mgr.delete_tenant(&t.tenant_id).is_ok());
         assert!(mgr.get_tenant(&t.tenant_id).is_err());
     }

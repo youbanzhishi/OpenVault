@@ -151,9 +151,14 @@ pub fn bench_small_file_backup(iterations: u64) -> BenchResult {
 pub fn bench_large_file_backup(iterations: u64) -> BenchResult {
     // 100 MB buffer
     let data = vec![0xABu8; 100 * 1024 * 1024];
-    run_bench_bytes("large_file_backup_checksum_100mb", iterations, data.len() as u64, || {
-        let _ = Checksum::compute(&data, HashAlgorithm::Sha256);
-    })
+    run_bench_bytes(
+        "large_file_backup_checksum_100mb",
+        iterations,
+        data.len() as u64,
+        || {
+            let _ = Checksum::compute(&data, HashAlgorithm::Sha256);
+        },
+    )
 }
 
 /// Benchmark: incremental vs full backup comparison.
@@ -276,25 +281,33 @@ pub fn bench_cross_device_restore(iterations: u64) -> BenchResult {
 ///
 /// Encrypts a 1 MB buffer and measures throughput.
 pub fn bench_aes256gcm_encrypt(iterations: u64) -> BenchResult {
-    let crypto = Aes256GcmCrypto::new(b"01234567890123456789012345678901")
-        .expect("valid key");
+    let crypto = Aes256GcmCrypto::new(b"01234567890123456789012345678901").expect("valid key");
     let data = vec![0x42u8; 1024 * 1024]; // 1 MB
-    run_bench_bytes("aes256gcm_encrypt_1mb", iterations, data.len() as u64, || {
-        let _ = crypto.encrypt(&data);
-    })
+    run_bench_bytes(
+        "aes256gcm_encrypt_1mb",
+        iterations,
+        data.len() as u64,
+        || {
+            let _ = crypto.encrypt(&data);
+        },
+    )
 }
 
 /// Benchmark: AES-256-GCM decryption throughput.
 ///
 /// Decrypts a 1 MB buffer and measures throughput.
 pub fn bench_aes256gcm_decrypt(iterations: u64) -> BenchResult {
-    let crypto = Aes256GcmCrypto::new(b"01234567890123456789012345678901")
-        .expect("valid key");
+    let crypto = Aes256GcmCrypto::new(b"01234567890123456789012345678901").expect("valid key");
     let data = vec![0x42u8; 1024 * 1024]; // 1 MB
     let encrypted = crypto.encrypt(&data).expect("encrypt");
-    run_bench_bytes("aes256gcm_decrypt_1mb", iterations, data.len() as u64, || {
-        let _ = crypto.decrypt(&encrypted);
-    })
+    run_bench_bytes(
+        "aes256gcm_decrypt_1mb",
+        iterations,
+        data.len() as u64,
+        || {
+            let _ = crypto.decrypt(&encrypted);
+        },
+    )
 }
 
 /// Benchmark: encryption with different block sizes.
@@ -302,13 +315,9 @@ pub fn bench_aes256gcm_decrypt(iterations: u64) -> BenchResult {
 /// Measures how block size affects encryption throughput:
 /// 4 KB, 64 KB, 1 MB blocks.
 pub fn bench_encrypt_block_sizes(iterations: u64) -> Vec<BenchResult> {
-    let crypto = Aes256GcmCrypto::new(b"01234567890123456789012345678901")
-        .expect("valid key");
-    let block_sizes: Vec<(usize, &str)> = vec![
-        (4 * 1024, "4kb"),
-        (64 * 1024, "64kb"),
-        (1024 * 1024, "1mb"),
-    ];
+    let crypto = Aes256GcmCrypto::new(b"01234567890123456789012345678901").expect("valid key");
+    let block_sizes: Vec<(usize, &str)> =
+        vec![(4 * 1024, "4kb"), (64 * 1024, "64kb"), (1024 * 1024, "1mb")];
 
     block_sizes
         .into_iter()
@@ -368,9 +377,10 @@ pub fn bench_keyword_search(iterations: u64) -> BenchResult {
 pub fn bench_semantic_search(iterations: u64) -> BenchResult {
     let mut index = FileIndex::new();
     for i in 0..1000usize {
-        let entry = FileIndexEntry::new(format!("/data/files/report_{:04}.pdf", i), 8192 + i as u64)
-            .with_tag("report")
-            .with_summary(format!("Quarterly report for department {}", i % 20));
+        let entry =
+            FileIndexEntry::new(format!("/data/files/report_{:04}.pdf", i), 8192 + i as u64)
+                .with_tag("report")
+                .with_summary(format!("Quarterly report for department {}", i % 20));
         index.upsert(entry);
     }
 

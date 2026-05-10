@@ -5,8 +5,7 @@ use crate::models::*;
 use chrono::Utc;
 use openvault_core::audit::{AuditLog, AuditOperation, AuditQuery, AuditResult, RotationConfig};
 use openvault_core::compliance::{
-    ComplianceChecker, ComplianceReport, ComplianceRule, DataClassification,
-    RetentionPolicy,
+    ComplianceChecker, ComplianceReport, ComplianceRule, DataClassification, RetentionPolicy,
 };
 use openvault_core::notification::{
     NotificationRule, NotificationSvc as CoreNotificationSvc, NotificationType, Severity,
@@ -46,10 +45,9 @@ impl DeviceService {
     /// Get device by ID
     pub async fn get(&self, device_id: &str) -> ServerResult<Device> {
         let devices = self.devices.read().await;
-        devices
-            .get(device_id)
-            .cloned()
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Device {} not found", device_id)))
+        devices.get(device_id).cloned().ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Device {} not found", device_id))
+        })
     }
 
     /// List all devices
@@ -61,9 +59,9 @@ impl DeviceService {
     /// Update device status
     pub async fn update_status(&self, device_id: &str, status: DeviceStatus) -> ServerResult<()> {
         let mut devices = self.devices.write().await;
-        let device = devices
-            .get_mut(device_id)
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Device {} not found", device_id)))?;
+        let device = devices.get_mut(device_id).ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Device {} not found", device_id))
+        })?;
         device.status = status;
         device.last_seen = Utc::now();
         Ok(())
@@ -72,9 +70,9 @@ impl DeviceService {
     /// Record device heartbeat
     pub async fn heartbeat(&self, device_id: &str) -> ServerResult<()> {
         let mut devices = self.devices.write().await;
-        let device = devices
-            .get_mut(device_id)
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Device {} not found", device_id)))?;
+        let device = devices.get_mut(device_id).ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Device {} not found", device_id))
+        })?;
         device.last_seen = Utc::now();
         device.status = DeviceStatus::Online;
         Ok(())
@@ -83,9 +81,9 @@ impl DeviceService {
     /// Delete device
     pub async fn delete(&self, device_id: &str) -> ServerResult<()> {
         let mut devices = self.devices.write().await;
-        devices
-            .remove(device_id)
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Device {} not found", device_id)))?;
+        devices.remove(device_id).ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Device {} not found", device_id))
+        })?;
         Ok(())
     }
 
@@ -132,10 +130,9 @@ impl PolicyService {
     /// Get policy by ID
     pub async fn get(&self, policy_id: &str) -> ServerResult<BackupPolicy> {
         let policies = self.policies.read().await;
-        policies
-            .get(policy_id)
-            .cloned()
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Policy {} not found", policy_id)))
+        policies.get(policy_id).cloned().ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Policy {} not found", policy_id))
+        })
     }
 
     /// List all policies
@@ -145,11 +142,15 @@ impl PolicyService {
     }
 
     /// Update a policy
-    pub async fn update(&self, policy_id: &str, updates: BackupPolicy) -> ServerResult<BackupPolicy> {
+    pub async fn update(
+        &self,
+        policy_id: &str,
+        updates: BackupPolicy,
+    ) -> ServerResult<BackupPolicy> {
         let mut policies = self.policies.write().await;
-        let policy = policies
-            .get_mut(policy_id)
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Policy {} not found", policy_id)))?;
+        let policy = policies.get_mut(policy_id).ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Policy {} not found", policy_id))
+        })?;
         policy.name = updates.name;
         policy.enabled = updates.enabled;
         policy.strategy = updates.strategy;
@@ -167,9 +168,9 @@ impl PolicyService {
     /// Delete a policy
     pub async fn delete(&self, policy_id: &str) -> ServerResult<()> {
         let mut policies = self.policies.write().await;
-        policies
-            .remove(policy_id)
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Policy {} not found", policy_id)))?;
+        policies.remove(policy_id).ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Policy {} not found", policy_id))
+        })?;
         Ok(())
     }
 
@@ -206,7 +207,10 @@ impl BackupService {
 
     /// Create a new backup status entry
     pub async fn create_backup(&self, device_id: &str) -> BackupStatus {
-        let backup = BackupStatus { device_id: device_id.to_string(), ..Default::default() };
+        let backup = BackupStatus {
+            device_id: device_id.to_string(),
+            ..Default::default()
+        };
         let mut backups = self.backups.write().await;
         backups.insert(backup.backup_id.clone(), backup.clone());
         backup
@@ -215,20 +219,26 @@ impl BackupService {
     /// Get backup status
     pub async fn get_backup(&self, backup_id: &str) -> ServerResult<BackupStatus> {
         let backups = self.backups.read().await;
-        backups
-            .get(backup_id)
-            .cloned()
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Backup {} not found", backup_id)))
+        backups.get(backup_id).cloned().ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Backup {} not found", backup_id))
+        })
     }
 
     /// Update backup status
-    pub async fn update_backup(&self, backup_id: &str, status: BackupStatusType) -> ServerResult<()> {
+    pub async fn update_backup(
+        &self,
+        backup_id: &str,
+        status: BackupStatusType,
+    ) -> ServerResult<()> {
         let mut backups = self.backups.write().await;
-        let backup = backups
-            .get_mut(backup_id)
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Backup {} not found", backup_id)))?;
+        let backup = backups.get_mut(backup_id).ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Backup {} not found", backup_id))
+        })?;
         backup.status = status.clone();
-        if matches!(status, BackupStatusType::Completed | BackupStatusType::Failed) {
+        if matches!(
+            status,
+            BackupStatusType::Completed | BackupStatusType::Failed
+        ) {
             backup.completed_at = Some(Utc::now());
         }
         Ok(())
@@ -245,19 +255,24 @@ impl BackupService {
     }
 
     /// Store snapshot
-    pub async fn store_snapshot(&self, snapshot: openvault_core::snapshot::Snapshot) -> ServerResult<()> {
+    pub async fn store_snapshot(
+        &self,
+        snapshot: openvault_core::snapshot::Snapshot,
+    ) -> ServerResult<()> {
         let mut snapshots = self.snapshots.write().await;
         snapshots.insert(snapshot.id.clone(), snapshot);
         Ok(())
     }
 
     /// Get snapshot
-    pub async fn get_snapshot(&self, snapshot_id: &str) -> ServerResult<openvault_core::snapshot::Snapshot> {
+    pub async fn get_snapshot(
+        &self,
+        snapshot_id: &str,
+    ) -> ServerResult<openvault_core::snapshot::Snapshot> {
         let snapshots = self.snapshots.read().await;
-        snapshots
-            .get(snapshot_id)
-            .cloned()
-            .ok_or_else(|| crate::error::ServerError::NotFound(format!("Snapshot {} not found", snapshot_id)))
+        snapshots.get(snapshot_id).cloned().ok_or_else(|| {
+            crate::error::ServerError::NotFound(format!("Snapshot {} not found", snapshot_id))
+        })
     }
 
     /// List all snapshots
@@ -273,13 +288,19 @@ impl BackupService {
         let backups = self.backups.read().await;
         backups
             .values()
-            .filter(|b| matches!(b.status, BackupStatusType::Pending | BackupStatusType::Running))
+            .filter(|b| {
+                matches!(
+                    b.status,
+                    BackupStatusType::Pending | BackupStatusType::Running
+                )
+            })
             .count() as u32
     }
 
     /// Cancel a backup
     pub async fn cancel(&self, backup_id: &str) -> ServerResult<()> {
-        self.update_backup(backup_id, BackupStatusType::Cancelled).await
+        self.update_backup(backup_id, BackupStatusType::Cancelled)
+            .await
     }
 }
 
@@ -322,7 +343,11 @@ impl NotificationService {
     }
 
     /// Send a notification for an event
-    pub async fn notify(&self, event: NotificationEvent, payload: WebhookPayload) -> ServerResult<()> {
+    pub async fn notify(
+        &self,
+        event: NotificationEvent,
+        payload: WebhookPayload,
+    ) -> ServerResult<()> {
         let config = self.config.read().await;
         if !config.enabled {
             return Ok(());
@@ -343,13 +368,19 @@ impl NotificationService {
                 .json(&payload)
                 .send()
                 .await
-                .map_err(|e| crate::error::ServerError::Internal(format!("Webhook request failed: {}", e)))?;
+                .map_err(|e| {
+                    crate::error::ServerError::Internal(format!("Webhook request failed: {}", e))
+                })?;
         }
         Ok(())
     }
 
     /// Notify backup completed
-    pub async fn notify_backup_completed(&self, device_id: &str, snapshot_id: &str) -> ServerResult<()> {
+    pub async fn notify_backup_completed(
+        &self,
+        device_id: &str,
+        snapshot_id: &str,
+    ) -> ServerResult<()> {
         self.notify(
             NotificationEvent::BackupCompleted,
             WebhookPayload {
@@ -360,7 +391,8 @@ impl NotificationService {
                 message: format!("Backup completed for device {}", device_id),
                 details: None,
             },
-        ).await
+        )
+        .await
     }
 
     /// Notify backup failed
@@ -375,7 +407,8 @@ impl NotificationService {
                 message: format!("Backup failed for device {}: {}", device_id, error),
                 details: Some(serde_json::json!({ "error": error })),
             },
-        ).await
+        )
+        .await
     }
 
     /// Notify device offline
@@ -390,7 +423,8 @@ impl NotificationService {
                 message: format!("Device {} is offline", device_id),
                 details: None,
             },
-        ).await
+        )
+        .await
     }
 }
 
@@ -404,8 +438,8 @@ impl Default for NotificationService {
 fn compute_hmac(message: &str, secret: &str) -> String {
     use hmac::{Hmac, Mac};
     type HmacSha256 = Hmac<sha2::Sha256>;
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC can take key of any size");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
     mac.update(message.as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
@@ -440,22 +474,29 @@ impl AuditService {
         Ok(())
     }
 
-    pub async fn query(&self, q: &AuditQuery) -> (usize, u32, u32, Vec<crate::models::AuditEntryResponse>) {
+    pub async fn query(
+        &self,
+        q: &AuditQuery,
+    ) -> (usize, u32, u32, Vec<crate::models::AuditEntryResponse>) {
         let log = self.log.read().await;
         let result = log.query(q);
         let total = result.total;
         let page = result.page;
         let per_page = result.per_page;
-        let items = result.items.into_iter().map(|e| crate::models::AuditEntryResponse {
-            seq: e.seq,
-            timestamp: e.timestamp,
-            user_id: e.user_id.clone(),
-            operation: e.operation.to_string(),
-            target: e.target.clone(),
-            result: format!("{:?}", e.result),
-            metadata: e.metadata.clone(),
-            hash: e.hash.clone(),
-        }).collect();
+        let items = result
+            .items
+            .into_iter()
+            .map(|e| crate::models::AuditEntryResponse {
+                seq: e.seq,
+                timestamp: e.timestamp,
+                user_id: e.user_id.clone(),
+                operation: e.operation.to_string(),
+                target: e.target.clone(),
+                result: format!("{:?}", e.result),
+                metadata: e.metadata.clone(),
+                hash: e.hash.clone(),
+            })
+            .collect();
         (total, page, per_page, items)
     }
 
@@ -487,7 +528,10 @@ impl TenantSvc {
         }
     }
 
-    pub async fn create_tenant(&self, req: &CreateTenantRequest) -> ServerResult<openvault_core::tenant::Tenant> {
+    pub async fn create_tenant(
+        &self,
+        req: &CreateTenantRequest,
+    ) -> ServerResult<openvault_core::tenant::Tenant> {
         let mut mgr = self.manager.write().await;
         let quota = TenantQuota {
             max_storage_bytes: req.max_storage_bytes.unwrap_or(0),
@@ -500,9 +544,11 @@ impl TenantSvc {
 
     pub async fn get_usage(&self, tenant_id: &str) -> ServerResult<TenantUsageResponse> {
         let mgr = self.manager.read().await;
-        let tenant = mgr.get_tenant(tenant_id)
+        let tenant = mgr
+            .get_tenant(tenant_id)
             .map_err(|e| crate::error::ServerError::NotFound(e.to_string()))?;
-        let usage = mgr.get_usage(tenant_id)
+        let usage = mgr
+            .get_usage(tenant_id)
             .map_err(|e| crate::error::ServerError::NotFound(e.to_string()))?;
         let quota_result = tenant.check_quota(usage);
         Ok(TenantUsageResponse {
@@ -602,15 +648,18 @@ impl InAppNotificationSvc {
         let history = svc.history();
         let total = history.len();
         let unread_count = history.iter().filter(|n| !n.read).count();
-        let notifications = history.iter().map(|n| NotificationItemResponse {
-            id: n.id.clone(),
-            notification_type: n.notification_type.to_string(),
-            severity: format!("{:?}", n.severity),
-            title: n.title.clone(),
-            message: n.message.clone(),
-            timestamp: n.timestamp,
-            read: n.read,
-        }).collect();
+        let notifications = history
+            .iter()
+            .map(|n| NotificationItemResponse {
+                id: n.id.clone(),
+                notification_type: n.notification_type.to_string(),
+                severity: format!("{:?}", n.severity),
+                title: n.title.clone(),
+                message: n.message.clone(),
+                timestamp: n.timestamp,
+                read: n.read,
+            })
+            .collect();
         NotificationListResponse {
             notifications,
             total,

@@ -230,14 +230,11 @@ impl RestoreEngine {
         algorithm: EncryptionAlgorithm,
         key_base64: &str,
     ) -> VaultResult<Self> {
-        let key_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            key_base64,
-        )
-        .map_err(|e| VaultError::Crypto(format!("Invalid base64 key: {}", e)))?;
+        let key_bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, key_base64)
+                .map_err(|e| VaultError::Crypto(format!("Invalid base64 key: {}", e)))?;
         let key = Key256::from_bytes(&key_bytes)?;
-        let crypto =
-            EncryptionProviderFactory::create(algorithm, key.as_bytes())?;
+        let crypto = EncryptionProviderFactory::create(algorithm, key.as_bytes())?;
 
         Ok(Self {
             storage,
@@ -246,7 +243,10 @@ impl RestoreEngine {
     }
 
     /// Create with a pre-built encryption provider.
-    pub fn with_provider(storage: Arc<dyn VaultStorage>, crypto: Arc<dyn EncryptionProvider>) -> Self {
+    pub fn with_provider(
+        storage: Arc<dyn VaultStorage>,
+        crypto: Arc<dyn EncryptionProvider>,
+    ) -> Self {
         Self {
             storage,
             crypto: Some(crypto),
@@ -263,22 +263,20 @@ impl RestoreEngine {
 
         // Create target directory
         std::fs::create_dir_all(&options.target).map_err(|e| {
-            VaultError::RestoreFailed(format!(
-                "Failed to create target directory: {}",
-                e
-            ))
+            VaultError::RestoreFailed(format!("Failed to create target directory: {}", e))
         })?;
 
         for entry in &snapshot.entries {
             // Apply filter if specified
-            if !options.filter_paths.is_empty()
-                && !options.filter_paths.contains(&entry.path)
-            {
+            if !options.filter_paths.is_empty() && !options.filter_paths.contains(&entry.path) {
                 report.files_skipped += 1;
                 continue;
             }
 
-            match self.restore_file(snapshot, entry, &options, &mut report).await {
+            match self
+                .restore_file(snapshot, entry, &options, &mut report)
+                .await
+            {
                 Ok(bytes) => {
                     report.files_restored += 1;
                     report.bytes_restored += bytes;
@@ -347,7 +345,11 @@ impl RestoreEngine {
         // Write to target
         let bytes = data.len() as u64;
         std::fs::write(&final_path, &data).map_err(|e| {
-            VaultError::RestoreFailed(format!("Failed to write file {}: {}", final_path.display(), e))
+            VaultError::RestoreFailed(format!(
+                "Failed to write file {}: {}",
+                final_path.display(),
+                e
+            ))
         })?;
 
         // Preserve timestamps if requested
@@ -377,19 +379,23 @@ impl RestoreEngine {
         }
 
         match strategy {
-            ConflictStrategy::Skip => {
-                Err(VaultError::RestoreFailed(format!(
-                    "File already exists (skip): {}",
-                    target_path.display()
-                )))
-            }
+            ConflictStrategy::Skip => Err(VaultError::RestoreFailed(format!(
+                "File already exists (skip): {}",
+                target_path.display()
+            ))),
             ConflictStrategy::Overwrite => Ok(target_path.to_path_buf()),
             ConflictStrategy::Rename => {
                 let mut counter = 1;
-                let stem = target_path.file_stem().unwrap_or_default().to_string_lossy();
-                let ext = target_path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+                let stem = target_path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                let ext = target_path
+                    .extension()
+                    .map(|e| format!(".{}", e.to_string_lossy()))
+                    .unwrap_or_default();
                 let parent = target_path.parent().unwrap_or(Path::new("."));
-                
+
                 loop {
                     let new_name = format!("{}{}.restored{}", stem, counter, ext);
                     let new_path = parent.join(&new_name);
@@ -398,16 +404,16 @@ impl RestoreEngine {
                     }
                     counter += 1;
                     if counter > 1000 {
-                        return Err(VaultError::RestoreFailed("Too many conflicting files".to_string()));
+                        return Err(VaultError::RestoreFailed(
+                            "Too many conflicting files".to_string(),
+                        ));
                     }
                 }
             }
-            ConflictStrategy::Fail => {
-                Err(VaultError::RestoreFailed(format!(
-                    "File already exists (fail): {}",
-                    target_path.display()
-                )))
-            }
+            ConflictStrategy::Fail => Err(VaultError::RestoreFailed(format!(
+                "File already exists (fail): {}",
+                target_path.display()
+            ))),
         }
     }
 
@@ -459,12 +465,16 @@ impl RestoreEngine {
             .iter()
             .find(|e| e.path == file_path)
             .ok_or_else(|| {
-                VaultError::RestoreFailed(format!("File {} not found in snapshot {}", file_path, snapshot_id))
+                VaultError::RestoreFailed(format!(
+                    "File {} not found in snapshot {}",
+                    file_path, snapshot_id
+                ))
             })?
             .clone();
 
         let mut report = RestoreReport::default();
-        self.restore_file(&snapshot, &entry, &options, &mut report).await?;
+        self.restore_file(&snapshot, &entry, &options, &mut report)
+            .await?;
         report.files_restored = 1;
 
         Ok(report)
@@ -491,13 +501,9 @@ impl RestoreEngine {
     }
 
     /// Verify a single file in a snapshot.
-    pub async fn verify_file(
-        &self,
-        snapshot: &Snapshot,
-        entry: &FileEntry,
-    ) -> VaultResult<()> {
+    pub async fn verify_file(&self, snapshot: &Snapshot, entry: &FileEntry) -> VaultResult<()> {
         let data = self.storage.retrieve_file(&snapshot.id, &entry.path)?;
-        
+
         // Decrypt if necessary
         let data = if let Some(crypto) = &self.crypto {
             crypto.decrypt(&data)?
@@ -547,7 +553,7 @@ mod tests {
         let options = RestoreOptions::to("/target/dir")
             .skip_existing()
             .filter_files(vec!["file1.txt".to_string()]);
-        
+
         assert_eq!(options.target, PathBuf::from("/target/dir"));
         assert_eq!(options.conflict, ConflictStrategy::Skip);
         assert_eq!(options.filter_paths, vec!["file1.txt"]);
@@ -557,7 +563,7 @@ mod tests {
     fn test_restore_options_with_encryption() {
         let options = RestoreOptions::default()
             .with_encryption(EncryptionAlgorithm::Aes256Gcm, "base64key123".to_string());
-        
+
         assert_eq!(options.encryption, Some(EncryptionAlgorithm::Aes256Gcm));
         assert_eq!(options.encryption_key, Some("base64key123".to_string()));
     }
@@ -567,7 +573,7 @@ mod tests {
         let mut report = RestoreReport::default();
         report.files_restored = 5;
         report.bytes_restored = 1024;
-        
+
         assert!(report.is_success());
         assert!(report.summary().contains("Restored: 5"));
     }
@@ -581,7 +587,7 @@ mod tests {
             path: "failed.txt".to_string(),
             message: "IO error".to_string(),
         });
-        
+
         assert!(!report.is_success());
         assert!(report.summary().contains("Checksum failures: 1"));
     }
@@ -592,7 +598,7 @@ mod tests {
             path: "/test/file.txt".to_string(),
             message: "Permission denied".to_string(),
         };
-        
+
         assert_eq!(error.to_string(), "/test/file.txt: Permission denied");
     }
 
@@ -601,7 +607,7 @@ mod tests {
         let mut report = VerifyReport::default();
         report.files_ok = 10;
         report.files_failed = 2;
-        
+
         assert!(!report.is_ok());
         assert_eq!(report.summary(), "Verified: 10/12 OK");
     }
@@ -615,10 +621,10 @@ mod tests {
             checksum_algorithm: HashAlgorithm::Sha256,
             encryption_algorithm: EncryptionAlgorithm::Aes256Gcm,
         };
-        
+
         let json = serde_json::to_string(&block).unwrap();
         let decoded: EncryptedBlock = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(decoded.path, "test.txt");
         assert_eq!(decoded.original_size, 1024);
     }
@@ -637,7 +643,7 @@ mod tests {
 // Phase 7: Natural Language Query
 // ============================================================================
 
-use chrono::{Duration, Datelike};
+use chrono::{Datelike, Duration};
 
 /// Parsed time range from a natural language query.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -895,11 +901,15 @@ impl NaturalLanguageQuery {
     fn extract_number_before(text: &str, keyword: &str) -> Option<i64> {
         if let Some(pos) = text.find(keyword) {
             let before = &text[..pos];
-            let num_str: String = before.chars().rev()
+            let num_str: String = before
+                .chars()
+                .rev()
                 .skip_while(|c| c.is_whitespace())
                 .take_while(|c| c.is_ascii_digit())
                 .collect::<String>()
-                .chars().rev().collect();
+                .chars()
+                .rev()
+                .collect();
             if let Ok(n) = num_str.parse::<i64>() {
                 return Some(n);
             }
@@ -911,14 +921,14 @@ impl NaturalLanguageQuery {
     fn extract_number_after(text: &str, keyword: &str) -> Option<i64> {
         if let Some(pos) = text.find(keyword) {
             let after = &text[pos + keyword.len()..];
-            let num_str: String = after.chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
+            let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
             if let Ok(n) = num_str.parse::<i64>() {
                 return Some(n);
             }
             // Also try Chinese numerals
-            let cn_digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+            let cn_digits = [
+                '零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十',
+            ];
             let first_char = after.chars().next();
             if let Some(c) = first_char {
                 if let Some(idx) = cn_digits.iter().position(|&d| d == c) {
@@ -933,27 +943,41 @@ impl NaturalLanguageQuery {
     fn parse_chinese_year_month(lower: &str) -> Option<TimeRange> {
         // Look for "YYYY年M月" pattern
         if let Some(pos) = lower.find("年") {
-            let year_str: String = lower[..pos].chars().rev()
+            let year_str: String = lower[..pos]
+                .chars()
+                .rev()
                 .take_while(|c| c.is_ascii_digit())
                 .collect::<String>()
-                .chars().rev().collect();
+                .chars()
+                .rev()
+                .collect();
             let year: i32 = year_str.parse().ok()?;
 
             let after_year = &lower[pos + "年".len()..];
-            let month_str: String = after_year.chars()
+            let month_str: String = after_year
+                .chars()
                 .take_while(|c| c.is_ascii_digit())
                 .collect();
             let month: u32 = month_str.parse().ok()?;
 
             if (1..=12).contains(&month) && (2000..=2100).contains(&year) {
                 if let Some(start) = chrono::NaiveDate::from_ymd_opt(year, month, 1) {
-                    let start_dt = chrono::DateTime::from_naive_utc_and_offset(start.and_hms_opt(0, 0, 0)?, chrono::Utc);
+                    let start_dt = chrono::DateTime::from_naive_utc_and_offset(
+                        start.and_hms_opt(0, 0, 0)?,
+                        chrono::Utc,
+                    );
                     // End of month
                     let next_month = if month == 12 { 1 } else { month + 1 };
                     let next_year = if month == 12 { year + 1 } else { year };
                     let end_date = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)?;
-                    let end_dt = chrono::DateTime::from_naive_utc_and_offset(end_date.and_hms_opt(0, 0, 0)?, chrono::Utc);
-                    return Some(TimeRange { start: start_dt, end: end_dt });
+                    let end_dt = chrono::DateTime::from_naive_utc_and_offset(
+                        end_date.and_hms_opt(0, 0, 0)?,
+                        chrono::Utc,
+                    );
+                    return Some(TimeRange {
+                        start: start_dt,
+                        end: end_dt,
+                    });
                 }
             }
         }

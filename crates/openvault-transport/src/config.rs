@@ -40,10 +40,18 @@ pub struct OpenLinkConfig {
     pub storage: StorageBackend,
 }
 
-fn default_timeout() -> u64 { 30 }
-fn default_retries() -> u32 { 3 }
-fn default_chunk_size() -> u64 { 1024 * 1024 * 10 } // 10MB
-fn default_compression() -> bool { true }
+fn default_timeout() -> u64 {
+    30
+}
+fn default_retries() -> u32 {
+    3
+}
+fn default_chunk_size() -> u64 {
+    1024 * 1024 * 10
+} // 10MB
+fn default_compression() -> bool {
+    true
+}
 
 impl OpenLinkConfig {
     /// Get device name
@@ -156,9 +164,15 @@ pub struct TransferConfig {
     pub adaptive_routing: bool,
 }
 
-fn default_prefer_direct() -> bool { true }
-fn default_concurrent() -> usize { 4 }
-fn default_adaptive() -> bool { true }
+fn default_prefer_direct() -> bool {
+    true
+}
+fn default_concurrent() -> usize {
+    4
+}
+fn default_adaptive() -> bool {
+    true
+}
 
 impl Default for TransferConfig {
     fn default() -> Self {

@@ -7,7 +7,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Risk level for an anomaly assessment.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RiskLevel {
     #[default]
@@ -179,7 +181,9 @@ impl AnomalyPredictor {
                 recent_error_rate: 0.0,
                 recent_avg_duration: 0.0,
                 consecutive_failures: 0,
-                recommendation: "No checkpoint data available. Run verification to establish baseline.".to_string(),
+                recommendation:
+                    "No checkpoint data available. Run verification to establish baseline."
+                        .to_string(),
                 factors,
             };
         }
@@ -265,11 +269,7 @@ impl AnomalyPredictor {
         }
 
         // Consecutive failures
-        let consecutive_failures = records
-            .iter()
-            .rev()
-            .take_while(|r| !r.passed)
-            .count() as u64;
+        let consecutive_failures = records.iter().rev().take_while(|r| !r.passed).count() as u64;
 
         if consecutive_failures >= self.critical_failure_count {
             factors.push(RiskFactor {
@@ -284,10 +284,7 @@ impl AnomalyPredictor {
             factors.push(RiskFactor {
                 name: "recent_failure".to_string(),
                 severity: RiskLevel::Medium,
-                description: format!(
-                    "{} recent verification failure(s)",
-                    consecutive_failures
-                ),
+                description: format!("{} recent verification failure(s)", consecutive_failures),
             });
         }
 
@@ -301,7 +298,11 @@ impl AnomalyPredictor {
         let recent_avg_duration = if recent.is_empty() {
             0.0
         } else {
-            recent.iter().map(|r| r.avg_duration_per_file()).sum::<f64>() / recent.len() as f64
+            recent
+                .iter()
+                .map(|r| r.avg_duration_per_file())
+                .sum::<f64>()
+                / recent.len() as f64
         };
 
         // Overall risk = max of all factor severities

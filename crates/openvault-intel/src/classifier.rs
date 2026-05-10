@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Backup priority level assigned to classified files.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum BackupPriority {
     /// Do not back up (temp files, caches, etc.)
@@ -210,8 +212,16 @@ impl FileClassifier {
     /// Determine file category using built-in heuristics.
     fn builtin_category(path: &str) -> FileCategory {
         let p = Path::new(path);
-        let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
-        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let file_name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         let path_lower = path.to_lowercase();
 
         // Temp/cache directories
@@ -253,21 +263,53 @@ impl FileClassifier {
 
         // Code files
         let code_exts = [
-            "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h", "hpp",
-            "rb", "php", "swift", "kt", "scala", "sh", "bash", "zsh", "fish",
-            "toml", "yaml", "yml", "json", "xml", "cmake", "makefile", "dockerfile",
+            "rs",
+            "py",
+            "js",
+            "ts",
+            "jsx",
+            "tsx",
+            "go",
+            "java",
+            "c",
+            "cpp",
+            "h",
+            "hpp",
+            "rb",
+            "php",
+            "swift",
+            "kt",
+            "scala",
+            "sh",
+            "bash",
+            "zsh",
+            "fish",
+            "toml",
+            "yaml",
+            "yml",
+            "json",
+            "xml",
+            "cmake",
+            "makefile",
+            "dockerfile",
         ];
         if code_exts.contains(&ext.as_str()) {
             return FileCategory::Code;
         }
 
         // Config files (dotfiles, etc.)
-        if file_name.starts_with('.') && !file_name.contains('.') || ext == "conf" || ext == "cfg" || ext == "ini" {
+        if file_name.starts_with('.') && !file_name.contains('.')
+            || ext == "conf"
+            || ext == "cfg"
+            || ext == "ini"
+        {
             return FileCategory::Config;
         }
 
         // Image files
-        let image_exts = ["jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "tiff", "ico", "raw", "cr2", "nef"];
+        let image_exts = [
+            "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "tiff", "ico", "raw", "cr2", "nef",
+        ];
         if image_exts.contains(&ext.as_str()) {
             return FileCategory::Image;
         }
@@ -285,7 +327,9 @@ impl FileClassifier {
         }
 
         // Document files
-        let doc_exts = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "rtf", "tex", "md"];
+        let doc_exts = [
+            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "rtf", "tex", "md",
+        ];
         if doc_exts.contains(&ext.as_str()) {
             return FileCategory::Document;
         }

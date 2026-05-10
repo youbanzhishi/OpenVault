@@ -203,7 +203,9 @@ impl VaultCompressor for Lz4Compressor {
     fn decompress(&self, data: &[u8]) -> CompressResult<Vec<u8>> {
         // Verify magic bytes
         if data.len() < 4 {
-            return Err(VaultError::Compression("Data too short for LZ4".to_string()));
+            return Err(VaultError::Compression(
+                "Data too short for LZ4".to_string(),
+            ));
         }
         if &data[..4] != LZ4_MAGIC {
             return Err(VaultError::Compression(
@@ -289,13 +291,23 @@ impl CompressedStorage {
 }
 
 impl VaultStorage for CompressedStorage {
-    fn store_file(&self, snapshot_id: &str, rel_path: &str, data: &[u8]) -> crate::error::VaultResult<()> {
-        let compressed = self.compressor.compress(data)
-            .map_err(|e| VaultError::Storage(format!("Compression failed for {}: {}", rel_path, e)))?;
+    fn store_file(
+        &self,
+        snapshot_id: &str,
+        rel_path: &str,
+        data: &[u8],
+    ) -> crate::error::VaultResult<()> {
+        let compressed = self.compressor.compress(data).map_err(|e| {
+            VaultError::Storage(format!("Compression failed for {}: {}", rel_path, e))
+        })?;
         self.inner.store_file(snapshot_id, rel_path, &compressed)
     }
 
-    fn retrieve_file(&self, snapshot_id: &str, rel_path: &str) -> crate::error::VaultResult<Vec<u8>> {
+    fn retrieve_file(
+        &self,
+        snapshot_id: &str,
+        rel_path: &str,
+    ) -> crate::error::VaultResult<Vec<u8>> {
         let compressed = self.inner.retrieve_file(snapshot_id, rel_path)?;
 
         // Auto-detect compression format for robustness
@@ -344,7 +356,11 @@ impl VaultStorage for CompressedStorage {
         "compressed"
     }
 
-    fn restore_snapshot(&self, snapshot: &Snapshot, target: &std::path::Path) -> crate::error::VaultResult<()> {
+    fn restore_snapshot(
+        &self,
+        snapshot: &Snapshot,
+        target: &std::path::Path,
+    ) -> crate::error::VaultResult<()> {
         std::fs::create_dir_all(target).map_err(|e| {
             VaultError::RestoreFailed(format!("Failed to create target directory: {}", e))
         })?;
@@ -359,7 +375,11 @@ impl VaultStorage for CompressedStorage {
 
             let data = self.retrieve_file(&snapshot.id, &entry.path)?;
             std::fs::write(&target_path, &data).map_err(|e| {
-                VaultError::RestoreFailed(format!("Failed to write {}: {}", target_path.display(), e))
+                VaultError::RestoreFailed(format!(
+                    "Failed to write {}: {}",
+                    target_path.display(),
+                    e
+                ))
             })?;
         }
 
@@ -421,7 +441,11 @@ pub fn compress_with_stats(
 ) -> CompressResult<(Vec<u8>, CompressionStats)> {
     let original_size = data.len() as u64;
     let compressed = compressor.compress(data)?;
-    let stats = CompressionStats::new(original_size, compressed.len() as u64, compressor.algorithm());
+    let stats = CompressionStats::new(
+        original_size,
+        compressed.len() as u64,
+        compressor.algorithm(),
+    );
     Ok((compressed, stats))
 }
 
@@ -451,7 +475,10 @@ mod tests {
         let data: Vec<u8> = "AAAA".repeat(10000).into_bytes();
 
         let compressed = compressor.compress(&data).unwrap();
-        assert!(compressed.len() < data.len() / 10, "Zstd should compress repeated data well");
+        assert!(
+            compressed.len() < data.len() / 10,
+            "Zstd should compress repeated data well"
+        );
     }
 
     #[test]

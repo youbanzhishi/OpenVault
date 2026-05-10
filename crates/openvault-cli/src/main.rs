@@ -4,23 +4,29 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+use openvault_core::audit::{AuditLog, AuditOperation, AuditQuery, AuditResult, RotationConfig};
+use openvault_core::compliance::{
+    ComplianceChecker, ComplianceRule, DataClassification, RetentionPolicy,
+};
 use openvault_core::config::BackupConfig;
 use openvault_core::engine::engine_for_strategy;
 use openvault_core::healing::{HealingConfig, HealingEngine};
 use openvault_core::integrity::{Checksum, HashAlgorithm};
+use openvault_core::notification::{NotificationSvc, NotificationType, Severity};
 use openvault_core::policy::{Policy321, PolicyEngine};
-use openvault_core::replicator::{ReplicatorConfig, ReplicationCoordinator};
+use openvault_core::replicator::{ReplicationCoordinator, ReplicatorConfig};
 use openvault_core::restore::{ConflictStrategy, RestoreEngine, RestoreOptions};
 use openvault_core::snapshot::BackupStrategy;
 use openvault_core::storage::VaultStorage;
-use openvault_storage::LocalVaultStorage;
-use openvault_core::audit::{AuditLog, AuditQuery, AuditOperation, AuditResult, RotationConfig};
-use openvault_core::compliance::{ComplianceChecker, ComplianceRule, DataClassification, RetentionPolicy};
 use openvault_core::tenant::{TenantManager, TenantQuota};
-use openvault_core::notification::{NotificationSvc, NotificationType, Severity};
+use openvault_storage::LocalVaultStorage;
 
 #[derive(Parser)]
-#[command(name = "vault", version, about = "OpenVault — intelligent file backup & disaster recovery\n\n狡兔三窟，AI守护，永不丢失")]
+#[command(
+    name = "vault",
+    version,
+    about = "OpenVault — intelligent file backup & disaster recovery\n\n狡兔三窟，AI守护，永不丢失"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -356,15 +362,22 @@ fn resolve_storage(
 ) -> Result<Box<dyn VaultStorage>> {
     match (config_path, storage_path) {
         (Some(cfg), _) => {
-            let config = BackupConfig::load_from_file(cfg)
-                .context("Failed to load backup config")?;
+            let config =
+                BackupConfig::load_from_file(cfg).context("Failed to load backup config")?;
             match &config.storage {
                 openvault_core::config::StorageConfig::Local { path } => {
                     let storage = LocalVaultStorage::new(path)
                         .context("Failed to initialize local storage")?;
                     Ok(Box::new(storage))
                 }
-                openvault_core::config::StorageConfig::S3 { bucket, prefix, endpoint, region, access_key_id, secret_access_key } => {
+                openvault_core::config::StorageConfig::S3 {
+                    bucket,
+                    prefix,
+                    endpoint,
+                    region,
+                    access_key_id,
+                    secret_access_key,
+                } => {
                     let storage = openvault_storage::S3VaultStorage::new(
                         bucket.clone(),
                         prefix.clone(),
@@ -375,7 +388,13 @@ fn resolve_storage(
                     );
                     Ok(Box::new(storage))
                 }
-                openvault_core::config::StorageConfig::R2 { bucket, prefix, account_id, access_key_id, secret_access_key } => {
+                openvault_core::config::StorageConfig::R2 {
+                    bucket,
+                    prefix,
+                    account_id,
+                    access_key_id,
+                    secret_access_key,
+                } => {
                     let storage = openvault_storage::R2VaultStorage::new(
                         account_id.clone(),
                         bucket.clone(),
@@ -388,8 +407,8 @@ fn resolve_storage(
             }
         }
         (_, Some(path)) => {
-            let storage = LocalVaultStorage::new(path)
-                .context("Failed to initialize local storage")?;
+            let storage =
+                LocalVaultStorage::new(path).context("Failed to initialize local storage")?;
             Ok(Box::new(storage))
         }
         (None, None) => {
@@ -403,7 +422,10 @@ fn parse_strategy(s: &str) -> Result<BackupStrategy> {
         "full" => Ok(BackupStrategy::Full),
         "incremental" | "inc" => Ok(BackupStrategy::Incremental),
         "differential" | "diff" => Ok(BackupStrategy::Differential),
-        _ => anyhow::bail!("Unknown strategy: {}. Use full, incremental, or differential", s),
+        _ => anyhow::bail!(
+            "Unknown strategy: {}. Use full, incremental, or differential",
+            s
+        ),
     }
 }
 
@@ -413,7 +435,10 @@ fn parse_conflict(s: &str) -> Result<ConflictStrategy> {
         "overwrite" | "over" => Ok(ConflictStrategy::Overwrite),
         "rename" => Ok(ConflictStrategy::Rename),
         "fail" => Ok(ConflictStrategy::Fail),
-        _ => anyhow::bail!("Unknown conflict strategy: {}. Use skip, overwrite, rename, or fail", s),
+        _ => anyhow::bail!(
+            "Unknown conflict strategy: {}. Use skip, overwrite, rename, or fail",
+            s
+        ),
     }
 }
 
@@ -423,56 +448,67 @@ async fn main() -> Result<()> {
 
     match cli.command {
         // ── Init ───────────────────────────────────────────────────────
-        Commands::Init { path, storage_type } => {
-            match storage_type.as_str() {
-                "local" => {
-                    let storage = LocalVaultStorage::new(&path)
-                        .context("Failed to initialize local vault")?;
-                    println!("✅ Initialized local vault at {}", path.display());
-                    println!("   Backend: {}", storage.backend_name());
-                }
-                "s3" | "r2" => {
-                    println!("ℹ️  For {} storage, use --config with a YAML config file.", storage_type);
-                    println!("   Example config:");
-                    if storage_type == "s3" {
-                        println!(r#"   storage:
+        Commands::Init { path, storage_type } => match storage_type.as_str() {
+            "local" => {
+                let storage =
+                    LocalVaultStorage::new(&path).context("Failed to initialize local vault")?;
+                println!("✅ Initialized local vault at {}", path.display());
+                println!("   Backend: {}", storage.backend_name());
+            }
+            "s3" | "r2" => {
+                println!(
+                    "ℹ️  For {} storage, use --config with a YAML config file.",
+                    storage_type
+                );
+                println!("   Example config:");
+                if storage_type == "s3" {
+                    println!(
+                        r#"   storage:
   type: "s3"
   bucket: "my-backups"
   prefix: "vault/"
   endpoint: "https://s3.amazonaws.com"
-  region: "us-east-1""#);
-                    } else {
-                        println!(r#"   storage:
+  region: "us-east-1""#
+                    );
+                } else {
+                    println!(
+                        r#"   storage:
   type: "r2"
   bucket: "my-r2-bucket"
   prefix: "backups/"
-  account_id: "your-account-id""#);
-                    }
+  account_id: "your-account-id""#
+                    );
                 }
-                _ => anyhow::bail!("Unknown storage type: {}. Use local, s3, or r2", storage_type),
             }
-        }
+            _ => anyhow::bail!(
+                "Unknown storage type: {}. Use local, s3, or r2",
+                storage_type
+            ),
+        },
 
         // ── Backup ──────────────────────────────────────────────────────
-        Commands::Backup { path, strategy, storage, config, excludes } => {
+        Commands::Backup {
+            path,
+            strategy,
+            storage,
+            config,
+            excludes,
+        } => {
             let strategy = parse_strategy(&strategy)?;
 
             let (storage_box, config_obj) = if let Some(cfg_path) = &config {
-                let cfg = BackupConfig::load_from_file(cfg_path)
-                    .context("Failed to load config")?;
+                let cfg =
+                    BackupConfig::load_from_file(cfg_path).context("Failed to load config")?;
                 let stor = resolve_storage(Some(cfg_path), None)?;
                 (stor, cfg)
             } else {
-                let storage_path = storage
-                    .unwrap_or_else(|| path.join("../.openvault-vault"));
+                let storage_path = storage.unwrap_or_else(|| path.join("../.openvault-vault"));
                 let stor = LocalVaultStorage::new(&storage_path)
                     .context("Failed to initialize storage")?;
                 let cfg = BackupConfig {
                     name: format!("backup-{}", path.display()),
                     source: path.clone(),
-                    storage: openvault_core::config::StorageConfig::Local {
-                        path: storage_path,
-                    },
+                    storage: openvault_core::config::StorageConfig::Local { path: storage_path },
                     strategy: strategy.clone(),
                     exclude: excludes,
                     schedule: None,
@@ -502,10 +538,14 @@ async fn main() -> Result<()> {
         }
 
         // ── Put (single file) ──────────────────────────────────────────
-        Commands::Put { file, snapshot, storage } => {
+        Commands::Put {
+            file,
+            snapshot,
+            storage,
+        } => {
             let storage_path = storage.unwrap_or_else(|| PathBuf::from(".openvault-vault"));
             let storage_box: Box<dyn VaultStorage> = Box::new(
-                LocalVaultStorage::new(&storage_path).context("Failed to initialize storage")?
+                LocalVaultStorage::new(&storage_path).context("Failed to initialize storage")?,
             );
 
             if !file.exists() {
@@ -514,7 +554,8 @@ async fn main() -> Result<()> {
 
             let data = std::fs::read(&file).context("Failed to read file")?;
             let checksum = Checksum::compute(&data, HashAlgorithm::Sha256);
-            let rel_path = file.file_name()
+            let rel_path = file
+                .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
 
@@ -546,15 +587,25 @@ async fn main() -> Result<()> {
             };
 
             storage_box.store_file(&snap_id, &rel_path, &data)?;
-            println!("✅ Stored {} ({} bytes, checksum: {}..) in snapshot {}",
-                rel_path, data.len(), checksum_short(checksum.value()), snap_id);
+            println!(
+                "✅ Stored {} ({} bytes, checksum: {}..) in snapshot {}",
+                rel_path,
+                data.len(),
+                checksum_short(checksum.value()),
+                snap_id
+            );
         }
 
         // ── Get (single file) ──────────────────────────────────────────
-        Commands::Get { path: rel_path, snapshot, output, storage } => {
+        Commands::Get {
+            path: rel_path,
+            snapshot,
+            output,
+            storage,
+        } => {
             let storage_path = storage.unwrap_or_else(|| PathBuf::from(".openvault-vault"));
             let storage_box: Box<dyn VaultStorage> = Box::new(
-                LocalVaultStorage::new(&storage_path).context("Failed to initialize storage")?
+                LocalVaultStorage::new(&storage_path).context("Failed to initialize storage")?,
             );
 
             let snap_id = if let Some(sid) = snapshot {
@@ -569,10 +620,13 @@ async fn main() -> Result<()> {
                         break;
                     }
                 }
-                found.ok_or_else(|| anyhow::anyhow!("File '{}' not found in any snapshot", rel_path))?
+                found.ok_or_else(|| {
+                    anyhow::anyhow!("File '{}' not found in any snapshot", rel_path)
+                })?
             };
 
-            let data = storage_box.retrieve_file(&snap_id, &rel_path)
+            let data = storage_box
+                .retrieve_file(&snap_id, &rel_path)
                 .context("Failed to retrieve file")?;
 
             let output_path = output.unwrap_or_else(|| PathBuf::from(&rel_path));
@@ -580,19 +634,35 @@ async fn main() -> Result<()> {
                 std::fs::create_dir_all(parent)?;
             }
             std::fs::write(&output_path, &data)?;
-            println!("✅ Retrieved {} → {} ({} bytes)", rel_path, output_path.display(), data.len());
+            println!(
+                "✅ Retrieved {} → {} ({} bytes)",
+                rel_path,
+                output_path.display(),
+                data.len()
+            );
         }
 
         // ── List ───────────────────────────────────────────────────────
-        Commands::List { snapshot, storage, config } => {
+        Commands::List {
+            snapshot,
+            storage,
+            config,
+        } => {
             let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
 
             if let Some(sid) = snapshot {
-                let snap = storage_box.load_snapshot(&sid)
+                let snap = storage_box
+                    .load_snapshot(&sid)
                     .context("Snapshot not found")?;
-                println!("Files in snapshot {} ({} files, {}):", snap.id, snap.file_count(), format_bytes(snap.total_size));
+                println!(
+                    "Files in snapshot {} ({} files, {}):",
+                    snap.id,
+                    snap.file_count(),
+                    format_bytes(snap.total_size)
+                );
                 for entry in &snap.entries {
-                    println!("  {:12} {} ({}..)",
+                    println!(
+                        "  {:12} {} ({}..)",
                         format_bytes(entry.size),
                         entry.path,
                         checksum_short(&entry.checksum),
@@ -603,7 +673,10 @@ async fn main() -> Result<()> {
                 if snapshots.is_empty() {
                     println!("No snapshots found.");
                 } else {
-                    println!("{:<30} {:<15} {:<8} {:<12} Created", "ID", "Strategy", "Files", "Size");
+                    println!(
+                        "{:<30} {:<15} {:<8} {:<12} Created",
+                        "ID", "Strategy", "Files", "Size"
+                    );
                     println!("{}", "-".repeat(85));
                     for snap in &snapshots {
                         println!(
@@ -625,7 +698,14 @@ async fn main() -> Result<()> {
         }
 
         // ── Restore ─────────────────────────────────────────────────────
-        Commands::Restore { snapshot_id, target, config, storage, conflict, verify } => {
+        Commands::Restore {
+            snapshot_id,
+            target,
+            config,
+            storage,
+            conflict,
+            verify,
+        } => {
             let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
             let conflict_strategy = parse_conflict(&conflict)?;
 
@@ -660,15 +740,16 @@ async fn main() -> Result<()> {
                     report.summary(),
                 );
             } else {
-                eprintln!(
-                    "⚠️  Restore completed with issues: {}",
-                    report.summary()
-                );
+                eprintln!("⚠️  Restore completed with issues: {}", report.summary());
             }
         }
 
         // ── Verify ──────────────────────────────────────────────────────
-        Commands::Verify { snapshot_id, config, storage } => {
+        Commands::Verify {
+            snapshot_id,
+            config,
+            storage,
+        } => {
             let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
 
             if let Some(sid) = snapshot_id {
@@ -685,17 +766,9 @@ async fn main() -> Result<()> {
                     .context("Verification failed")?;
 
                 if report.is_ok() {
-                    println!(
-                        "✅ Snapshot {} verified: {}",
-                        sid,
-                        report.summary()
-                    );
+                    println!("✅ Snapshot {} verified: {}", sid, report.summary());
                 } else {
-                    eprintln!(
-                        "❌ Snapshot {} has issues: {}",
-                        sid,
-                        report.summary()
-                    );
+                    eprintln!("❌ Snapshot {} has issues: {}", sid, report.summary());
                     for err in &report.errors {
                         eprintln!("  - {}: {}", err.path, err.message);
                     }
@@ -727,7 +800,12 @@ async fn main() -> Result<()> {
                     }
                 }
 
-                println!("\n📊 Summary: {} OK, {} failed out of {} snapshots", total_ok, total_failed, snapshots.len());
+                println!(
+                    "\n📊 Summary: {} OK, {} failed out of {} snapshots",
+                    total_ok,
+                    total_failed,
+                    snapshots.len()
+                );
                 if total_failed > 0 {
                     std::process::exit(1);
                 }
@@ -735,7 +813,11 @@ async fn main() -> Result<()> {
         }
 
         // ── Status (3-2-1 policy health) ───────────────────────────────
-        Commands::Status { source, storage, config } => {
+        Commands::Status {
+            source,
+            storage,
+            config,
+        } => {
             let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
             let policy = Policy321::default();
             let engine = PolicyEngine::new(policy);
@@ -770,7 +852,10 @@ async fn main() -> Result<()> {
             if snapshots.is_empty() {
                 println!("No snapshots found.");
             } else {
-                println!("{:<30} {:<15} {:<8} {:<12} Created", "ID", "Strategy", "Files", "Size");
+                println!(
+                    "{:<30} {:<15} {:<8} {:<12} Created",
+                    "ID", "Strategy", "Files", "Size"
+                );
                 println!("{}", "-".repeat(85));
                 for snap in &snapshots {
                     println!(
@@ -790,22 +875,34 @@ async fn main() -> Result<()> {
             }
         }
 
-        Commands::Snapshots(SnapshotCommands::Delete { id, config, storage }) => {
+        Commands::Snapshots(SnapshotCommands::Delete {
+            id,
+            config,
+            storage,
+        }) => {
             let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
             storage_box.delete_snapshot(&id)?;
             println!("🗑️  Deleted snapshot {}", id);
         }
 
-        Commands::Snapshots(SnapshotCommands::Info { id, config, storage }) => {
+        Commands::Snapshots(SnapshotCommands::Info {
+            id,
+            config,
+            storage,
+        }) => {
             let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
-            let snap = storage_box.load_snapshot(&id)
+            let snap = storage_box
+                .load_snapshot(&id)
                 .context("Snapshot not found")?;
 
             println!("Snapshot: {}", snap.id);
             println!("  Strategy:  {:?}", snap.strategy);
             println!("  Source:    {}", snap.source);
             println!("  Backend:   {}", snap.storage_backend);
-            println!("  Created:   {}", snap.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
+            println!(
+                "  Created:   {}",
+                snap.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+            );
             println!("  Files:     {}", snap.file_count());
             println!("  Total size: {}", format_bytes(snap.total_size));
             if let Some(parent) = &snap.parent_id {
@@ -813,7 +910,8 @@ async fn main() -> Result<()> {
             }
             println!("  Entries:");
             for entry in &snap.entries {
-                println!("    {} ({} bytes, checksum: {}..)",
+                println!(
+                    "    {} ({} bytes, checksum: {}..)",
                     entry.path,
                     entry.size,
                     checksum_short(&entry.checksum),
@@ -838,7 +936,13 @@ async fn main() -> Result<()> {
         }
 
         // ── Replicate (3-2-1 strategy) ────────────────────────────────
-        Commands::Replicate { source, storage, replicas, config, auto_remediate } => {
+        Commands::Replicate {
+            source,
+            storage,
+            replicas,
+            config,
+            auto_remediate,
+        } => {
             let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
             let source_key = source.unwrap_or_else(|| "/".to_string());
 
@@ -847,8 +951,10 @@ async fn main() -> Result<()> {
                     .filter(|s| !s.trim().is_empty())
                     .map(|path| {
                         let p = PathBuf::from(path.trim());
-                        Ok(Box::new(LocalVaultStorage::new(&p)
-                            .context(format!("Failed to init replica storage at {}", path.trim()))?) as Box<dyn VaultStorage>)
+                        Ok(Box::new(LocalVaultStorage::new(&p).context(format!(
+                            "Failed to init replica storage at {}",
+                            path.trim()
+                        ))?) as Box<dyn VaultStorage>)
                     })
                     .collect::<Result<Vec<_>>>()?
             } else {
@@ -864,9 +970,10 @@ async fn main() -> Result<()> {
             // Get latest snapshot from primary
             match storage_box.latest_snapshot(source_key.clone())? {
                 Some(snapshot) => {
-                    let refs: Vec<&dyn VaultStorage> = replica_storages.iter().map(|s| s.as_ref()).collect();
+                    let refs: Vec<&dyn VaultStorage> =
+                        replica_storages.iter().map(|s| s.as_ref()).collect();
                     let result = replicator.replicate_snapshot(&snapshot, &*storage_box, &refs)?;
-                    
+
                     if result.is_full_success() {
                         println!("✅ {}", result.summary());
                     } else {
@@ -883,11 +990,16 @@ async fn main() -> Result<()> {
         }
 
         // ── Maintain (full 3-2-1 check) ──────────────────────────────
-        Commands::Maintain { source, storage, replicas, auto_remediate } => {
+        Commands::Maintain {
+            source,
+            storage,
+            replicas,
+            auto_remediate,
+        } => {
             let default_storage = PathBuf::from(".openvault-vault");
             let storage_path = storage.as_ref().unwrap_or(&default_storage);
             let primary: Box<dyn VaultStorage> = Box::new(
-                LocalVaultStorage::new(storage_path).context("Failed to init primary storage")?
+                LocalVaultStorage::new(storage_path).context("Failed to init primary storage")?,
             );
             let source_key = source.unwrap_or_else(|| "/".to_string());
 
@@ -896,8 +1008,10 @@ async fn main() -> Result<()> {
                     .filter(|s| !s.trim().is_empty())
                     .map(|path| {
                         let p = PathBuf::from(path.trim());
-                        Ok(Box::new(LocalVaultStorage::new(&p)
-                            .context(format!("Failed to init replica storage at {}", path.trim()))?) as Box<dyn VaultStorage>)
+                        Ok(Box::new(LocalVaultStorage::new(&p).context(format!(
+                            "Failed to init replica storage at {}",
+                            path.trim()
+                        ))?) as Box<dyn VaultStorage>)
                     })
                     .collect::<Result<Vec<_>>>()?
             } else {
@@ -910,42 +1024,60 @@ async fn main() -> Result<()> {
             };
             let replicator = ReplicationCoordinator::new(replicator_config);
 
-            let refs: Vec<&dyn VaultStorage> = replica_storages.iter().map(|s| s.as_ref()).collect();
+            let refs: Vec<&dyn VaultStorage> =
+                replica_storages.iter().map(|s| s.as_ref()).collect();
             let result = replicator.maintain_321(&source_key, &*primary, &refs)?;
-            
+
             println!("🔍 {}", result.summary);
 
             if !result.policy_healthy {
                 eprintln!("⚠️  3-2-1 policy violations detected. Consider adding more backends.");
             }
             if result.backends_with_corruption > 0 {
-                eprintln!("🔧 Corruption detected in {} backend(s), healing attempted.", result.backends_with_corruption);
+                eprintln!(
+                    "🔧 Corruption detected in {} backend(s), healing attempted.",
+                    result.backends_with_corruption
+                );
             }
             if result.remediation_actions > 0 {
-                println!("✅ Auto-remediated: {} replica(s) created", result.remediation_actions);
+                println!(
+                    "✅ Auto-remediated: {} replica(s) created",
+                    result.remediation_actions
+                );
             }
             if result.healing_actions > 0 {
-                println!("🔧 Healed: {} file(s) restored from healthy replicas", result.healing_actions);
+                println!(
+                    "🔧 Healed: {} file(s) restored from healthy replicas",
+                    result.healing_actions
+                );
             }
         }
 
         // ── Heal ───────────────────────────────────────────────────────
-        Commands::Heal(HealCommands::Scan { snapshot_id, storage }) => {
+        Commands::Heal(HealCommands::Scan {
+            snapshot_id,
+            storage,
+        }) => {
             let default_storage = PathBuf::from(".openvault-vault");
             let storage_path = storage.as_ref().unwrap_or(&default_storage);
-            let storage_box: Box<dyn VaultStorage> = Box::new(LocalVaultStorage::new(storage_path)
-                .context("Failed to initialize storage")?);
+            let storage_box: Box<dyn VaultStorage> = Box::new(
+                LocalVaultStorage::new(storage_path).context("Failed to initialize storage")?,
+            );
 
             if let Some(sid) = snapshot_id {
-                let snapshot = storage_box.load_snapshot(&sid)
+                let snapshot = storage_box
+                    .load_snapshot(&sid)
                     .context("Snapshot not found")?;
                 let result = HealingEngine::scan(&*storage_box, &snapshot)?;
                 println!("{}", result.summary());
 
                 for check in &result.checks {
                     if !check.healthy {
-                        eprintln!("  ❌ {} - {}", check.path,
-                            check.error.as_deref().unwrap_or("corrupt"));
+                        eprintln!(
+                            "  ❌ {} - {}",
+                            check.path,
+                            check.error.as_deref().unwrap_or("corrupt")
+                        );
                     }
                 }
             } else {
@@ -955,20 +1087,32 @@ async fn main() -> Result<()> {
                 }
                 let total_corrupt: u32 = results.iter().map(|r| r.files_corrupt).sum();
                 if total_corrupt > 0 {
-                    eprintln!("\n⚠️  Found {} corrupt files across all snapshots", total_corrupt);
+                    eprintln!(
+                        "\n⚠️  Found {} corrupt files across all snapshots",
+                        total_corrupt
+                    );
                 } else {
                     println!("\n✅ All snapshots are healthy");
                 }
             }
         }
 
-        Commands::Heal(HealCommands::Repair { snapshot_id, source_storage, target_storage }) => {
-            let source: Box<dyn VaultStorage> = Box::new(LocalVaultStorage::new(&source_storage)
-                .context("Failed to initialize source storage")?);
-            let target: Box<dyn VaultStorage> = Box::new(LocalVaultStorage::new(&target_storage)
-                .context("Failed to initialize target storage")?);
+        Commands::Heal(HealCommands::Repair {
+            snapshot_id,
+            source_storage,
+            target_storage,
+        }) => {
+            let source: Box<dyn VaultStorage> = Box::new(
+                LocalVaultStorage::new(&source_storage)
+                    .context("Failed to initialize source storage")?,
+            );
+            let target: Box<dyn VaultStorage> = Box::new(
+                LocalVaultStorage::new(&target_storage)
+                    .context("Failed to initialize target storage")?,
+            );
 
-            let snapshot = target.load_snapshot(&snapshot_id)
+            let snapshot = target
+                .load_snapshot(&snapshot_id)
                 .or_else(|_| source.load_snapshot(&snapshot_id))
                 .context("Snapshot not found in either storage")?;
 
@@ -983,13 +1127,24 @@ async fn main() -> Result<()> {
         }
 
         // ── Audit ───────────────────────────────────────────────────────
-        Commands::Audit(AuditCommands::List { user, operation, limit }) => {
+        Commands::Audit(AuditCommands::List {
+            user,
+            operation,
+            limit,
+        }) => {
             let mut log = AuditLog::new(RotationConfig::default());
             // In a real implementation, log would be loaded from storage
             // For now, add a sample entry
             let mut meta = std::collections::HashMap::new();
             meta.insert("source".into(), "cli".into());
-            log.append("system", AuditOperation::BackupStarted, "cli-backup", AuditResult::Success, meta).unwrap();
+            log.append(
+                "system",
+                AuditOperation::BackupStarted,
+                "cli-backup",
+                AuditResult::Success,
+                meta,
+            )
+            .unwrap();
 
             let mut q = AuditQuery::new();
             if let Some(ref u) = user {
@@ -1004,10 +1159,14 @@ async fn main() -> Result<()> {
             if result.items.is_empty() {
                 println!("No audit entries found.");
             } else {
-                println!("{:<6} {:<25} {:<15} {:<20} {:<10} Target", "Seq", "Timestamp", "User", "Operation", "Result");
+                println!(
+                    "{:<6} {:<25} {:<15} {:<20} {:<10} Target",
+                    "Seq", "Timestamp", "User", "Operation", "Result"
+                );
                 println!("{}", "-".repeat(100));
                 for e in &result.items {
-                    println!("{:<6} {:<25} {:<15} {:<20} {:<10} {}",
+                    println!(
+                        "{:<6} {:<25} {:<15} {:<20} {:<10} {}",
                         e.seq,
                         e.timestamp.format("%Y-%m-%d %H:%M:%S"),
                         e.user_id,
@@ -1023,7 +1182,14 @@ async fn main() -> Result<()> {
         Commands::Audit(AuditCommands::Verify) => {
             let mut log = AuditLog::new(RotationConfig::default());
             let meta = std::collections::HashMap::new();
-            log.append("system", AuditOperation::BackupStarted, "test", AuditResult::Success, meta).unwrap();
+            log.append(
+                "system",
+                AuditOperation::BackupStarted,
+                "test",
+                AuditResult::Success,
+                meta,
+            )
+            .unwrap();
             match log.verify_chain() {
                 Ok(_) => println!("✅ Audit chain integrity verified."),
                 Err(e) => eprintln!("❌ Audit chain integrity FAILED: {}", e),
@@ -1034,7 +1200,14 @@ async fn main() -> Result<()> {
             let mut log = AuditLog::new(RotationConfig::default());
             let mut meta = std::collections::HashMap::new();
             meta.insert("source".into(), "cli".into());
-            log.append("system", AuditOperation::BackupCompleted, "snap-001", AuditResult::Success, meta).unwrap();
+            log.append(
+                "system",
+                AuditOperation::BackupCompleted,
+                "snap-001",
+                AuditResult::Success,
+                meta,
+            )
+            .unwrap();
 
             let q = AuditQuery::new();
             let data = match format.as_str() {
@@ -1052,7 +1225,11 @@ async fn main() -> Result<()> {
         }
 
         // ── Compliance ──────────────────────────────────────────────────
-        Commands::Compliance(ComplianceCommands::Check { path, region, retention_days }) => {
+        Commands::Compliance(ComplianceCommands::Check {
+            path,
+            region,
+            retention_days,
+        }) => {
             let mut checker = ComplianceChecker::new();
             checker.add_rule(ComplianceRule {
                 rule_id: "gdpr-default".into(),
@@ -1078,7 +1255,11 @@ async fn main() -> Result<()> {
         }
 
         // ── Tenant ──────────────────────────────────────────────────────
-        Commands::Tenant(TenantCommands::Create { name, max_storage_gb, max_files }) => {
+        Commands::Tenant(TenantCommands::Create {
+            name,
+            max_storage_gb,
+            max_files,
+        }) => {
             let mut mgr = TenantManager::new();
             let quota = TenantQuota {
                 max_storage_bytes: max_storage_gb * 1024 * 1024 * 1024,
@@ -1105,7 +1286,14 @@ async fn main() -> Result<()> {
         // ── Notify ──────────────────────────────────────────────────────
         Commands::Notify(NotifyCommands::List { limit }) => {
             let mut svc = NotificationSvc::new();
-            let _ = svc.send(NotificationType::BackupCompleted, Severity::Info, "Test Backup", "Backup completed", None, std::collections::HashMap::new());
+            let _ = svc.send(
+                NotificationType::BackupCompleted,
+                Severity::Info,
+                "Test Backup",
+                "Backup completed",
+                None,
+                std::collections::HashMap::new(),
+            );
             let history = svc.history();
             let count = std::cmp::min(limit as usize, history.len());
             if history.is_empty() {
@@ -1113,7 +1301,13 @@ async fn main() -> Result<()> {
             } else {
                 for n in history.iter().take(count) {
                     let read_marker = if n.read { "✓" } else { "●" };
-                    println!("{} [{}] {} — {}", read_marker, n.severity, n.title, n.timestamp.format("%Y-%m-%d %H:%M"));
+                    println!(
+                        "{} [{}] {} — {}",
+                        read_marker,
+                        n.severity,
+                        n.title,
+                        n.timestamp.format("%Y-%m-%d %H:%M")
+                    );
                 }
             }
         }
@@ -1122,8 +1316,10 @@ async fn main() -> Result<()> {
             let svc = NotificationSvc::new();
             println!("📋 Notification Rules:");
             for r in svc.rules() {
-                println!("  {} ({}): severity >= {:?}, channels: {:?}, dedup: {}m",
-                    r.name, r.rule_id, r.min_severity, r.channels, r.dedup_minutes);
+                println!(
+                    "  {} ({}): severity >= {:?}, channels: {:?}, dedup: {}m",
+                    r.name, r.rule_id, r.min_severity, r.channels, r.dedup_minutes
+                );
             }
         }
 
@@ -1135,10 +1331,16 @@ async fn main() -> Result<()> {
                 "quota_warning" => NotificationType::QuotaWarning,
                 _ => NotificationType::BackupCompleted,
             };
-            svc.send(ntype.clone(), Severity::Info, "Test", "Test notification from CLI", None, std::collections::HashMap::new())?;
+            svc.send(
+                ntype.clone(),
+                Severity::Info,
+                "Test",
+                "Test notification from CLI",
+                None,
+                std::collections::HashMap::new(),
+            )?;
             println!("📨 Test notification sent: {}", ntype);
         }
-
     }
 
     Ok(())

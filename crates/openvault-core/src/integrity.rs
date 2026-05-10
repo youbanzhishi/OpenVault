@@ -240,9 +240,9 @@ impl IntegrityEngine {
     /// Verify a single file against expected checksum.
     pub fn verify_file(path: &std::path::Path, expected: &str) -> VaultResult<IntegrityCheck> {
         let path_str = path.display().to_string();
-        
+
         let checksum = compute_file_checksum(path, HashAlgorithm::Sha256)?;
-        
+
         if checksum.value == expected {
             Ok(IntegrityCheck {
                 path: path_str,
@@ -268,11 +268,11 @@ impl IntegrityEngine {
         storage_base: &std::path::Path,
     ) -> IntegrityReport {
         let mut report = IntegrityReport::default();
-        
+
         for (path, expected_checksum, expected_size) in entries {
             let full_path = storage_base.join(path);
             let path_str = path.to_string();
-            
+
             // Check file exists
             let metadata = match std::fs::metadata(&full_path) {
                 Ok(m) => m,
@@ -287,7 +287,7 @@ impl IntegrityEngine {
                     continue;
                 }
             };
-            
+
             // Check size first (quick check)
             if metadata.len() != expected_size {
                 report.add_check(IntegrityCheck {
@@ -295,12 +295,16 @@ impl IntegrityEngine {
                     passed: false,
                     expected: Some(expected_checksum.to_string()),
                     actual: Some(format!("size={}", metadata.len())),
-                    error: Some(format!("Size mismatch: expected {}, got {}", expected_size, metadata.len())),
+                    error: Some(format!(
+                        "Size mismatch: expected {}, got {}",
+                        expected_size,
+                        metadata.len()
+                    )),
                 });
                 report.bytes_checked += metadata.len();
                 continue;
             }
-            
+
             // Full checksum verification
             match compute_file_checksum(&full_path, HashAlgorithm::Sha256) {
                 Ok(checksum) => {
@@ -334,18 +338,16 @@ impl IntegrityEngine {
                 }
             }
         }
-        
+
         report
     }
 
     /// Compute aggregate checksum for multiple files (for snapshot-level verification).
-    pub fn compute_aggregate_checksum(
-        checksums: &[Checksum],
-    ) -> VaultResult<String> {
+    pub fn compute_aggregate_checksum(checksums: &[Checksum]) -> VaultResult<String> {
         if checksums.is_empty() {
             return Ok(String::new());
         }
-        
+
         let mut hasher = Sha256::new();
         for checksum in checksums {
             hasher.update(checksum.value.as_bytes());
@@ -392,9 +394,9 @@ mod tests {
     fn test_checksum_verify_with_result() {
         let data = b"Test data";
         let checksum = Checksum::compute(data, HashAlgorithm::Sha256);
-        
+
         assert!(checksum.verify_with_result(data).is_ok());
-        
+
         let tampered = b"Modified data";
         let result = checksum.verify_with_result(tampered);
         assert!(result.is_err());
@@ -403,12 +405,12 @@ mod tests {
     #[test]
     fn test_streaming_hasher() {
         let mut hasher = Sha256Hasher::new();
-        
+
         hasher.write_all(b"Hello, ").unwrap();
         hasher.write_all(b"OpenVault!").unwrap();
-        
+
         let checksum = Box::new(hasher).finalize();
-        
+
         // Verify it matches direct computation
         let direct = Checksum::compute(b"Hello, OpenVault!", HashAlgorithm::Sha256);
         assert_eq!(checksum.value, direct.value);
@@ -429,7 +431,7 @@ mod tests {
             actual: Some("abc123".to_string()),
             error: None,
         };
-        
+
         assert!(check.passed);
         assert!(check.error.is_none());
     }
@@ -443,7 +445,7 @@ mod tests {
             actual: Some("def456".to_string()),
             error: Some("Checksum mismatch".to_string()),
         };
-        
+
         assert!(!check.passed);
         assert!(check.error.is_some());
     }
@@ -451,7 +453,7 @@ mod tests {
     #[test]
     fn test_integrity_report() {
         let mut report = IntegrityReport::default();
-        
+
         report.add_check(IntegrityCheck {
             path: "file1.txt".to_string(),
             passed: true,
@@ -466,7 +468,7 @@ mod tests {
             actual: Some("def".to_string()),
             error: Some("Mismatch".to_string()),
         });
-        
+
         assert_eq!(report.files_ok, 1);
         assert_eq!(report.files_failed, 1);
         assert!(!report.is_all_ok());
@@ -479,10 +481,10 @@ mod tests {
             Checksum::new(HashAlgorithm::Sha256, "bbb".to_string()),
             Checksum::new(HashAlgorithm::Sha256, "ccc".to_string()),
         ];
-        
+
         let aggregate = IntegrityEngine::compute_aggregate_checksum(&checksums).unwrap();
         assert_eq!(aggregate.len(), 64); // SHA-256 hash of concatenated values
-        
+
         // Empty list should return empty string
         let empty_aggregate = IntegrityEngine::compute_aggregate_checksum(&[]).unwrap();
         assert_eq!(empty_aggregate, "");
@@ -493,14 +495,14 @@ mod tests {
         // Create a temporary file
         let temp_dir = std::env::temp_dir();
         let temp_file = temp_dir.join("openvault_test_checksum.txt");
-        
+
         std::fs::write(&temp_file, b"Test content for integrity check").unwrap();
-        
+
         let checksum = compute_file_checksum(&temp_file, HashAlgorithm::Sha256).unwrap();
-        
+
         // Verify the checksum
         assert!(checksum.verify(b"Test content for integrity check"));
-        
+
         // Cleanup
         std::fs::remove_file(&temp_file).ok();
     }

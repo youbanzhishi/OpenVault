@@ -28,14 +28,16 @@ impl LocalVaultStorage {
     pub fn new(root: impl Into<PathBuf>) -> VaultResult<Self> {
         let root = root.into();
         std::fs::create_dir_all(&root).map_err(|e| {
-            VaultError::Storage(format!("Failed to create storage root {}: {}", root.display(), e))
+            VaultError::Storage(format!(
+                "Failed to create storage root {}: {}",
+                root.display(),
+                e
+            ))
         })?;
-        std::fs::create_dir_all(root.join("snapshots")).map_err(|e| {
-            VaultError::Storage(format!("Failed to create snapshots dir: {}", e))
-        })?;
-        std::fs::create_dir_all(root.join("data")).map_err(|e| {
-            VaultError::Storage(format!("Failed to create data dir: {}", e))
-        })?;
+        std::fs::create_dir_all(root.join("snapshots"))
+            .map_err(|e| VaultError::Storage(format!("Failed to create snapshots dir: {}", e)))?;
+        std::fs::create_dir_all(root.join("data"))
+            .map_err(|e| VaultError::Storage(format!("Failed to create data dir: {}", e)))?;
         Ok(Self { root })
     }
 
@@ -86,9 +88,8 @@ impl VaultStorage for LocalVaultStorage {
 
     fn store_snapshot(&self, snapshot: &Snapshot) -> VaultResult<()> {
         let path = self.snapshot_path(&snapshot.id);
-        let json = serde_json::to_string_pretty(snapshot).map_err(|e| {
-            VaultError::Storage(format!("Failed to serialize snapshot: {}", e))
-        })?;
+        let json = serde_json::to_string_pretty(snapshot)
+            .map_err(|e| VaultError::Storage(format!("Failed to serialize snapshot: {}", e)))?;
         std::fs::write(&path, json).map_err(|e| {
             VaultError::Storage(format!(
                 "Failed to write snapshot {}: {}",
@@ -106,9 +107,8 @@ impl VaultStorage for LocalVaultStorage {
         let json = std::fs::read_to_string(&path).map_err(|e| {
             VaultError::Storage(format!("Failed to read snapshot {}: {}", path.display(), e))
         })?;
-        serde_json::from_str(&json).map_err(|e| {
-            VaultError::Storage(format!("Failed to parse snapshot {}: {}", id, e))
-        })
+        serde_json::from_str(&json)
+            .map_err(|e| VaultError::Storage(format!("Failed to parse snapshot {}: {}", id, e)))
     }
 
     fn list_snapshots(&self) -> VaultResult<Vec<Snapshot>> {
@@ -280,7 +280,9 @@ mod tests {
             .store_file("snap-001", "subdir/file.txt", b"hello world")
             .unwrap();
 
-        let data = storage.retrieve_file("snap-001", "subdir/file.txt").unwrap();
+        let data = storage
+            .retrieve_file("snap-001", "subdir/file.txt")
+            .unwrap();
         assert_eq!(data, b"hello world");
     }
 
@@ -315,9 +317,7 @@ mod tests {
         storage.store_snapshot(&snap).unwrap();
 
         let target = TempDir::new().unwrap();
-        storage
-            .restore_snapshot(&snap, target.path())
-            .unwrap();
+        storage.restore_snapshot(&snap, target.path()).unwrap();
 
         assert!(target.path().join("a.txt").exists());
         assert!(target.path().join("sub/b.txt").exists());
@@ -338,7 +338,9 @@ mod tests {
         storage.store_snapshot(&full_snap).unwrap();
         storage.store_snapshot(&inc_snap).unwrap();
 
-        let result = storage.latest_full_snapshot("/tmp/source".to_string()).unwrap();
+        let result = storage
+            .latest_full_snapshot("/tmp/source".to_string())
+            .unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().id, "snap-full1");
     }

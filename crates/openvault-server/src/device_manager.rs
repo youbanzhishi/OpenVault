@@ -78,7 +78,9 @@ impl DeviceProfile {
         if self.storage_capacity_bytes == 0 {
             return false;
         }
-        let free = self.storage_capacity_bytes.saturating_sub(self.storage_used_bytes);
+        let free = self
+            .storage_capacity_bytes
+            .saturating_sub(self.storage_used_bytes);
         free * 10 < self.storage_capacity_bytes
     }
 
@@ -87,7 +89,9 @@ impl DeviceProfile {
         if self.storage_capacity_bytes == 0 {
             return 100.0;
         }
-        let free = self.storage_capacity_bytes.saturating_sub(self.storage_used_bytes);
+        let free = self
+            .storage_capacity_bytes
+            .saturating_sub(self.storage_used_bytes);
         free as f64 / self.storage_capacity_bytes as f64 * 100.0
     }
 
@@ -155,7 +159,9 @@ impl DeviceRegistry {
     /// Register a device and return its profile.
     pub async fn register(&self, profile: DeviceProfile) -> DeviceProfile {
         let mut inner = self.inner.write().await;
-        inner.devices.insert(profile.device_id.clone(), profile.clone());
+        inner
+            .devices
+            .insert(profile.device_id.clone(), profile.clone());
         profile
     }
 
@@ -316,8 +322,12 @@ impl DeviceSyncCoordinator {
 
         // Sort by free space (descending)
         candidates.sort_by(|a, b| {
-            let free_a = a.storage_capacity_bytes.saturating_sub(a.storage_used_bytes);
-            let free_b = b.storage_capacity_bytes.saturating_sub(b.storage_used_bytes);
+            let free_a = a
+                .storage_capacity_bytes
+                .saturating_sub(a.storage_used_bytes);
+            let free_b = b
+                .storage_capacity_bytes
+                .saturating_sub(b.storage_used_bytes);
             free_b.cmp(&free_a)
         });
 
@@ -346,7 +356,11 @@ impl DeviceSyncCoordinator {
             });
         }
 
-        candidates.into_iter().take(target_count).map(|d| d.device_id).collect()
+        candidates
+            .into_iter()
+            .take(target_count)
+            .map(|d| d.device_id)
+            .collect()
     }
 
     /// Get a degraded (fallback) restore strategy when devices are offline.
@@ -466,7 +480,10 @@ impl DevicePolicyMapper {
         let base = inner.policies.get(policy_id)?;
 
         let mut effective = base.clone();
-        if let Some(ov) = inner.overrides.get(&(device_id.to_string(), policy_id.to_string())) {
+        if let Some(ov) = inner
+            .overrides
+            .get(&(device_id.to_string(), policy_id.to_string()))
+        {
             if let Some(ref s) = ov.schedule {
                 effective.schedule = s.clone();
             }
@@ -488,7 +505,10 @@ impl DevicePolicyMapper {
     pub async fn set_override(&self, override_cfg: PolicyOverride) {
         let mut inner = self.inner.write().await;
         inner.overrides.insert(
-            (override_cfg.device_id.clone(), override_cfg.policy_id.clone()),
+            (
+                override_cfg.device_id.clone(),
+                override_cfg.policy_id.clone(),
+            ),
             override_cfg,
         );
     }
@@ -496,7 +516,11 @@ impl DevicePolicyMapper {
     /// Check device capacity and update warnings.
     /// Returns true if a warning was triggered.
     pub async fn check_capacity(&self, device_id: &str, used: u64, total: u64) -> bool {
-        let ratio = if total > 0 { used as f64 / total as f64 } else { 0.0 };
+        let ratio = if total > 0 {
+            used as f64 / total as f64
+        } else {
+            0.0
+        };
         let threshold = 0.9; // 90% used triggers warning
         let triggered = ratio >= threshold;
 
@@ -528,7 +552,10 @@ impl DevicePolicyMapper {
         let mut result = Vec::new();
         for (policy_id, base) in &inner.policies {
             let mut cfg = base.clone();
-            if let Some(ov) = inner.overrides.get(&(device_id.to_string(), policy_id.clone())) {
+            if let Some(ov) = inner
+                .overrides
+                .get(&(device_id.to_string(), policy_id.clone()))
+            {
                 if let Some(ref s) = ov.schedule {
                     cfg.schedule = s.clone();
                 }
@@ -565,7 +592,8 @@ mod tests {
     #[tokio::test]
     async fn test_register_and_get_device() {
         let registry = DeviceRegistry::new();
-        let profile = DeviceProfile::new("My PC", DeviceKind::PC, "Office", 500 * 1024 * 1024 * 1024);
+        let profile =
+            DeviceProfile::new("My PC", DeviceKind::PC, "Office", 500 * 1024 * 1024 * 1024);
         let id = profile.device_id.clone();
         registry.register(profile).await;
 

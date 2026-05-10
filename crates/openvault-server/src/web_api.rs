@@ -189,9 +189,7 @@ pub enum WsPushEvent {
         result: String,
     },
     /// Alert notification.
-    Alert {
-        alert: DashboardAlert,
-    },
+    Alert { alert: DashboardAlert },
     /// Device status change.
     DeviceStatus {
         device_id: String,
@@ -424,9 +422,7 @@ impl DashboardApi {
             title: "Backup Frequency".to_string(),
             data_points: (0..7)
                 .map(|i| DataPoint {
-                    timestamp: Some(
-                        now - chrono::Duration::days(6 - i),
-                    ),
+                    timestamp: Some(now - chrono::Duration::days(6 - i)),
                     label: None,
                     value: (i as f64 * 2.5 + 10.0),
                     value2: None,
@@ -456,9 +452,7 @@ impl DashboardApi {
             title: "Storage Usage Trend".to_string(),
             data_points: (0..7)
                 .map(|i| DataPoint {
-                    timestamp: Some(
-                        now - chrono::Duration::days(6 - i),
-                    ),
+                    timestamp: Some(now - chrono::Duration::days(6 - i)),
                     label: None,
                     value: (1.0 + i as f64 * 0.5) * 1024.0 * 1024.0 * 1024.0,
                     value2: None,

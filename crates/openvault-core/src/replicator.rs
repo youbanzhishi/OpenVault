@@ -94,14 +94,21 @@ impl HealthCheckResult {
     /// Get summary.
     pub fn summary(&self) -> String {
         let corruption_msg = if self.backends_with_corruption > 0 {
-            format!(", {} backends with corruption", self.backends_with_corruption)
+            format!(
+                ", {} backends with corruption",
+                self.backends_with_corruption
+            )
         } else {
             String::new()
         };
         format!(
             "Health: {} backends checked, policy={}{}",
             self.backends_checked,
-            if self.policy_health.healthy { "OK" } else { "VIOLATED" },
+            if self.policy_health.healthy {
+                "OK"
+            } else {
+                "VIOLATED"
+            },
             corruption_msg
         )
     }
@@ -157,7 +164,9 @@ impl ReplicationCoordinator {
             match target.load_snapshot(&snapshot.id) {
                 Ok(_) => {
                     // Already exists, skip
-                    result.successful_backends.push(format!("{} (existing)", backend_name));
+                    result
+                        .successful_backends
+                        .push(format!("{} (existing)", backend_name));
                     result.backends_replicated += 1;
                     continue;
                 }
@@ -170,7 +179,10 @@ impl ReplicationCoordinator {
             if let Err(e) = target.store_snapshot(snapshot) {
                 result.backends_failed += 1;
                 result.failed_backends.push(backend_name.clone());
-                result.errors.push((backend_name.clone(), format!("Failed to store snapshot metadata: {}", e)));
+                result.errors.push((
+                    backend_name.clone(),
+                    format!("Failed to store snapshot metadata: {}", e),
+                ));
                 continue;
             }
 
@@ -205,7 +217,9 @@ impl ReplicationCoordinator {
                     let scan = HealingEngine::scan(target, snapshot)?;
                     if !scan.is_all_healthy() {
                         result.backends_failed += 1;
-                        result.failed_backends.push(format!("{} (verify failed)", backend_name));
+                        result
+                            .failed_backends
+                            .push(format!("{} (verify failed)", backend_name));
                         continue;
                     }
                 }
@@ -283,7 +297,9 @@ impl ReplicationCoordinator {
         // Find the latest snapshot from source
         let snapshot = source_storage
             .latest_snapshot(source.to_string())?
-            .ok_or_else(|| VaultError::PolicyViolation("No snapshot found to remediate".to_string()))?;
+            .ok_or_else(|| {
+                VaultError::PolicyViolation("No snapshot found to remediate".to_string())
+            })?;
 
         let mut actions = 0u32;
 
@@ -299,7 +315,9 @@ impl ReplicationCoordinator {
                     Ok(_) => {
                         let mut all_ok = true;
                         for entry in &snapshot.entries {
-                            if let Ok(data) = source_storage.retrieve_file(&snapshot.id, &entry.path) {
+                            if let Ok(data) =
+                                source_storage.retrieve_file(&snapshot.id, &entry.path)
+                            {
                                 if target.store_file(&snapshot.id, &entry.path, &data).is_err() {
                                     all_ok = false;
                                     break;
@@ -357,7 +375,9 @@ impl ReplicationCoordinator {
                 let scan = HealingEngine::scan(replica, &snap)?;
                 if !scan.is_all_healthy() {
                     let healing_config = HealingConfig::default();
-                    if let Ok(heal_result) = HealingEngine::heal(replica, primary, &snap, &healing_config) {
+                    if let Ok(heal_result) =
+                        HealingEngine::heal(replica, primary, &snap, &healing_config)
+                    {
                         result.healing_actions += heal_result.files_healed;
                     }
                 }
@@ -366,7 +386,11 @@ impl ReplicationCoordinator {
 
         result.summary = format!(
             "3-2-1 Maintenance: policy={}, corruption={}, remediated={}, healed={}",
-            if result.policy_healthy { "OK" } else { "VIOLATED" },
+            if result.policy_healthy {
+                "OK"
+            } else {
+                "VIOLATED"
+            },
             result.backends_with_corruption,
             result.remediation_actions,
             result.healing_actions

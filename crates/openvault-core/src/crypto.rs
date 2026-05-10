@@ -73,8 +73,8 @@ impl Key256 {
 
     /// Create from hex string.
     pub fn from_hex(hex: &str) -> CryptoResult<Self> {
-        let bytes = hex::decode(hex)
-            .map_err(|e| VaultError::Crypto(format!("Invalid hex key: {}", e)))?;
+        let bytes =
+            hex::decode(hex).map_err(|e| VaultError::Crypto(format!("Invalid hex key: {}", e)))?;
         Self::from_bytes(&bytes)
     }
 
@@ -89,20 +89,21 @@ impl Key256 {
         } else {
             salt.to_vec()
         };
-        
-        let salt_b64 = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &salt_vec);
+
+        let salt_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &salt_vec);
         let salt = SaltString::from_b64(&salt_b64)
             .map_err(|e| VaultError::Crypto(format!("Invalid salt: {}", e)))?;
-        
+
         let argon2 = Argon2::default();
         let hash = argon2
             .hash_password(password.as_bytes(), &salt)
             .map_err(|e| VaultError::Crypto(format!("Key derivation failed: {}", e)))?;
-        
-        let hash_bytes = hash.hash.ok_or_else(|| {
-            VaultError::Crypto("Key derivation produced no hash".to_string())
-        })?;
-        
+
+        let hash_bytes = hash
+            .hash
+            .ok_or_else(|| VaultError::Crypto("Key derivation produced no hash".to_string()))?;
+
         let mut key = [0u8; 32];
         let hash_ref = hash_bytes.as_bytes();
         let len = std::cmp::min(32, hash_ref.len());
@@ -227,19 +228,25 @@ pub struct EncryptionProviderFactory;
 
 impl EncryptionProviderFactory {
     /// Create an encryption provider by algorithm.
-    pub fn create(algorithm: EncryptionAlgorithm, key: &[u8]) -> CryptoResult<std::sync::Arc<dyn EncryptionProvider>> {
+    pub fn create(
+        algorithm: EncryptionAlgorithm,
+        key: &[u8],
+    ) -> CryptoResult<std::sync::Arc<dyn EncryptionProvider>> {
         match algorithm {
-            EncryptionAlgorithm::Aes256Gcm => {
-                Ok(std::sync::Arc::new(AesGcmEncryption::new(key)?) as std::sync::Arc<dyn EncryptionProvider>)
-            }
+            EncryptionAlgorithm::Aes256Gcm => Ok(std::sync::Arc::new(AesGcmEncryption::new(key)?)
+                as std::sync::Arc<dyn EncryptionProvider>),
         }
     }
 
     /// Create from hex-encoded key.
-    pub fn create_from_hex(algorithm: EncryptionAlgorithm, hex_key: &str) -> CryptoResult<std::sync::Arc<dyn EncryptionProvider>> {
+    pub fn create_from_hex(
+        algorithm: EncryptionAlgorithm,
+        hex_key: &str,
+    ) -> CryptoResult<std::sync::Arc<dyn EncryptionProvider>> {
         match algorithm {
             EncryptionAlgorithm::Aes256Gcm => {
-                Ok(std::sync::Arc::new(AesGcmEncryption::from_hex(hex_key)?) as std::sync::Arc<dyn EncryptionProvider>)
+                Ok(std::sync::Arc::new(AesGcmEncryption::from_hex(hex_key)?)
+                    as std::sync::Arc<dyn EncryptionProvider>)
             }
         }
     }
@@ -278,15 +285,17 @@ impl<W: std::io::Write> EncryptedWriter<W> {
 impl<W: std::io::Write> std::io::Write for EncryptedWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.buffer.extend_from_slice(buf);
-        
+
         while self.buffer.len() >= 65536 {
             let chunk = self.buffer.drain(..65536).collect::<Vec<_>>();
-            let encrypted = self.encryptor.encrypt(&chunk)
+            let encrypted = self
+                .encryptor
+                .encrypt(&chunk)
                 .map_err(std::io::Error::other)?;
             self.writer.write_all(&encrypted)?;
             self.processed += chunk.len() as u64;
         }
-        
+
         Ok(buf.len())
     }
 
@@ -320,22 +329,24 @@ impl<R: std::io::Read> std::io::Read for DecryptedReader<R> {
         if self.buffer.is_empty() && !self.finished {
             let mut chunk = vec![0u8; 65548];
             let n = self.reader.read(&mut chunk)?;
-            
+
             if n == 0 {
                 self.finished = true;
                 return Ok(0);
             }
-            
+
             chunk.truncate(n);
-            let decrypted = self.decryptor.decrypt(&chunk)
+            let decrypted = self
+                .decryptor
+                .decrypt(&chunk)
                 .map_err(std::io::Error::other)?;
             self.buffer = decrypted;
         }
-        
+
         if self.buffer.is_empty() {
             return Ok(0);
         }
-        
+
         let n = std::cmp::min(buf.len(), self.buffer.len());
         buf[..n].copy_from_slice(&self.buffer[..n]);
         self.buffer.drain(..n);
@@ -376,7 +387,9 @@ impl EncryptedData {
         }
         let nonce_len = u16::from_be_bytes([data[0], data[1]]) as usize;
         if data.len() < 2 + nonce_len {
-            return Err(VaultError::Crypto("EncryptedData truncated nonce".to_string()));
+            return Err(VaultError::Crypto(
+                "EncryptedData truncated nonce".to_string(),
+            ));
         }
         let nonce = data[2..2 + nonce_len].to_vec();
         let ciphertext = data[2 + nonce_len..].to_vec();
@@ -442,7 +455,11 @@ impl Aes256GcmCrypto {
 
     /// Create from password using PBKDF2 key derivation.
     #[cfg(feature = "crypto-advanced")]
-    pub fn from_password_pbkdf2(password: &str, salt: &[u8], iterations: u32) -> CryptoResult<Self> {
+    pub fn from_password_pbkdf2(
+        password: &str,
+        salt: &[u8],
+        iterations: u32,
+    ) -> CryptoResult<Self> {
         let key = KeyDerivation::pbkdf2_derive(password, salt, iterations)?;
         Ok(Self { key })
     }
@@ -536,12 +553,7 @@ impl KeyDerivation {
     /// * `iterations` - Number of PBKDF2 iterations (higher = slower but more secure)
     pub fn pbkdf2_derive(password: &str, salt: &[u8], iterations: u32) -> CryptoResult<Key256> {
         let mut key = [0u8; 32];
-        pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
-            password.as_bytes(),
-            salt,
-            iterations,
-            &mut key,
-        );
+        pbkdf2::pbkdf2_hmac::<sha2::Sha256>(password.as_bytes(), salt, iterations, &mut key);
         Key256::from_bytes(&key)
     }
 
@@ -767,15 +779,26 @@ impl EncryptedStorage {
 }
 
 impl VaultStorage for EncryptedStorage {
-    fn store_file(&self, snapshot_id: &str, rel_path: &str, data: &[u8]) -> crate::error::VaultResult<()> {
-        let encrypted = self.crypto.encrypt_to_bytes(data)
-            .map_err(|e| VaultError::Storage(format!("Encryption failed for {}: {}", rel_path, e)))?;
+    fn store_file(
+        &self,
+        snapshot_id: &str,
+        rel_path: &str,
+        data: &[u8],
+    ) -> crate::error::VaultResult<()> {
+        let encrypted = self.crypto.encrypt_to_bytes(data).map_err(|e| {
+            VaultError::Storage(format!("Encryption failed for {}: {}", rel_path, e))
+        })?;
         self.inner.store_file(snapshot_id, rel_path, &encrypted)
     }
 
-    fn retrieve_file(&self, snapshot_id: &str, rel_path: &str) -> crate::error::VaultResult<Vec<u8>> {
+    fn retrieve_file(
+        &self,
+        snapshot_id: &str,
+        rel_path: &str,
+    ) -> crate::error::VaultResult<Vec<u8>> {
         let encrypted = self.inner.retrieve_file(snapshot_id, rel_path)?;
-        self.crypto.decrypt_from_bytes(&encrypted)
+        self.crypto
+            .decrypt_from_bytes(&encrypted)
             .map_err(|e| VaultError::Storage(format!("Decryption failed for {}: {}", rel_path, e)))
     }
 
@@ -808,7 +831,11 @@ impl VaultStorage for EncryptedStorage {
         "encrypted"
     }
 
-    fn restore_snapshot(&self, snapshot: &Snapshot, target: &std::path::Path) -> crate::error::VaultResult<()> {
+    fn restore_snapshot(
+        &self,
+        snapshot: &Snapshot,
+        target: &std::path::Path,
+    ) -> crate::error::VaultResult<()> {
         // Custom restore that decrypts files
         std::fs::create_dir_all(target).map_err(|e| {
             VaultError::RestoreFailed(format!("Failed to create target directory: {}", e))
@@ -824,7 +851,11 @@ impl VaultStorage for EncryptedStorage {
 
             let data = self.retrieve_file(&snapshot.id, &entry.path)?;
             std::fs::write(&target_path, &data).map_err(|e| {
-                VaultError::RestoreFailed(format!("Failed to write {}: {}", target_path.display(), e))
+                VaultError::RestoreFailed(format!(
+                    "Failed to write {}: {}",
+                    target_path.display(),
+                    e
+                ))
             })?;
         }
 
@@ -930,12 +961,12 @@ mod tests {
     fn test_key_from_password() {
         let salt1 = b"shortsalt";
         let salt2 = b"longersaltvalue";
-        
+
         let key1 = Key256::from_password("mypassword", salt1).unwrap();
         let key2 = Key256::from_password("mypassword", salt2).unwrap();
-        
+
         assert_ne!(key1.to_hex(), key2.to_hex());
-        
+
         let key3 = Key256::from_password("mypassword", salt1).unwrap();
         assert_eq!(key1.to_hex(), key3.to_hex());
     }
@@ -943,12 +974,13 @@ mod tests {
     #[test]
     fn test_factory_create() {
         let key = Key256::generate();
-        let provider = EncryptionProviderFactory::create(EncryptionAlgorithm::Aes256Gcm, &key.0).unwrap();
-        
+        let provider =
+            EncryptionProviderFactory::create(EncryptionAlgorithm::Aes256Gcm, &key.0).unwrap();
+
         let data = b"Test data";
         let ciphertext = provider.encrypt(data).unwrap();
         let decrypted = provider.decrypt(&ciphertext).unwrap();
-        
+
         assert_eq!(decrypted, data);
     }
 
