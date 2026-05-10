@@ -9,11 +9,11 @@ name = "openvault-server"
 path = "src/main.rs"
 
 [dependencies]
-# HTTP server
-axum = { version = "0.7", features = ["ws"] }
+# HTTP server - use axum 0.6 which works with hyper 0.14
+axum = { version = "0.6", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "fs", "macros"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.4", features = ["cors", "trace"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -38,13 +38,14 @@ clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 hex = "0.4"
 sha2 = "0.10"
+hmac = "0.12"
 
 # OpenVault types
 openvault-core = { path = "../openvault-core" }
 openvault-transport = { path = "../openvault-transport" }
 
-# HTTP client (for webhook notifications)
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# HTTP client (for webhook notifications) - use reqwest 0.11
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
 
 # Encryption
 aes-gcm = "0.10"

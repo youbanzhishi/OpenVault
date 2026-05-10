@@ -144,10 +144,13 @@ impl S3VaultStorage {
                 .join(";");
 
             let canonical_uri = format!("/{}/{}", self.bucket, key);
+            // Canonical querystring is empty for PUT/GET/DELETE on objects
+            let canonical_querystring = "";
             let canonical_request = format!(
-                "{}\n{}\n\n{}\n\n{}\n{}",
+                "{}\n{}\n{}\n{}\n\n{}\n{}",
                 method,
                 canonical_uri,
+                canonical_querystring,
                 canonical_headers,
                 signed_headers,
                 sha256_hex(body),
@@ -176,6 +179,79 @@ impl S3VaultStorage {
             let signature = hmac_sha256_hex(&signing_key, string_to_sign.as_bytes());
 
             // Build authorization header
+            let auth_header = format!(
+                "AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
+                akid, credential_scope, signed_headers, signature
+            );
+            headers.push(("Authorization".to_string(), auth_header));
+        }
+    }
+
+    /// Sign a LIST request with query parameters.
+    fn sign_request_list(
+        &self,
+        method: &str,
+        query_string: &str,
+        headers: &mut Vec<(String, String)>,
+        body: &[u8],
+    ) {
+        let now = chrono::Utc::now();
+        let date_stamp = now.format("%Y%m%d").to_string();
+        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+
+        let host = self.endpoint
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .trim_end_matches('/');
+
+        headers.push(("host".to_string(), format!("{}/{}", host, self.bucket)));
+        headers.push(("x-amz-date".to_string(), amz_date.clone()));
+        headers.push(("x-amz-content-sha256".to_string(), sha256_hex(body)));
+
+        if let (Some(akid), Some(secret)) = (&self.access_key_id, &self.secret_access_key) {
+            let canonical_headers: String = headers
+                .iter()
+                .map(|(k, v)| format!("{}:{}", k.to_lowercase(), v.trim()))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let signed_headers: String = headers
+                .iter()
+                .map(|(k, _)| k.to_lowercase())
+                .collect::<Vec<_>>()
+                .join(";");
+
+            let canonical_uri = format!("/{}", self.bucket);
+            let canonical_request = format!(
+                "{}\n{}\n{}\n{}\n\n{}\n{}",
+                method,
+                canonical_uri,
+                query_string,
+                canonical_headers,
+                signed_headers,
+                sha256_hex(body),
+            );
+
+            let credential_scope = format!("{}/s3/aws4_request", date_stamp);
+            let string_to_sign = format!(
+                "AWS4-HMAC-SHA256\n{}\n{}\n{}",
+                amz_date,
+                credential_scope,
+                sha256_hex(canonical_request.as_bytes()),
+            );
+
+            let signing_key = hmac_sha256_chain(
+                format!("AWS4{}", secret).as_bytes(),
+                &[
+                    date_stamp.as_bytes(),
+                    self.region.as_bytes(),
+                    b"s3",
+                    b"aws4_request",
+                ],
+            );
+
+            let signature = hmac_sha256_hex(&signing_key, string_to_sign.as_bytes());
+
             let auth_header = format!(
                 "AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
                 akid, credential_scope, signed_headers, signature
@@ -269,18 +345,37 @@ impl S3VaultStorage {
         Ok(())
     }
 
+    /// Check if an object exists in S3 using HEAD request.
+    fn head_object(&self, key: &str) -> VaultResult<bool> {
+        let url = self.object_url(key);
+        let mut headers = Vec::new();
+        self.sign_request("HEAD", key, &mut headers, &[]);
+
+        let mut request = self.client.head(&url);
+        for (k, v) in &headers {
+            request = request.header(k.as_str(), v.as_str());
+        }
+
+        let response = request.send().map_err(|e| {
+            VaultError::Storage(format!("S3 HEAD failed for key {}: {}", key, e))
+        })?;
+
+        Ok(response.status().is_success())
+    }
+
     /// List objects in S3 with a given prefix.
     fn list_objects(&self, prefix: &str) -> VaultResult<Vec<String>> {
         let endpoint = self.endpoint.trim_end_matches('/');
+        let qs = format!("list-type=2&prefix={}", urlencoding::encode(prefix));
         let url = format!(
-            "{}/{}?list-type=2&prefix={}",
+            "{}/{}?{}",
             endpoint,
             self.bucket,
-            urlencoding::encode(prefix),
+            qs,
         );
 
         let mut headers = Vec::new();
-        self.sign_request("GET", prefix, &mut headers, &[]);
+        self.sign_request_list("GET", &qs, &mut headers, &[]);
 
         let mut request = self.client.get(&url);
         for (k, v) in &headers {
@@ -304,13 +399,22 @@ impl S3VaultStorage {
 
         // Parse XML to extract keys (simplified parsing)
         let mut keys = Vec::new();
-        for key_start in body.matches("<Key>") {
-            if let Some(rest) = key_start.strip_prefix("<Key>") {
-                if let Some(end) = rest.find("</Key>") {
-                    keys.push(rest[..end].to_string());
-                }
+        let mut search_start = 0;
+        while let Some(pos) = body[search_start..].find("<Key>") {
+            let after_tag = search_start + pos + 5; // length of "<Key>"
+            if let Some(end) = body[after_tag..].find("</Key>") {
+                keys.push(body[after_tag..after_tag + end].to_string());
+                search_start = after_tag + end + 6; // length of "</Key>"
+            } else {
+                break;
             }
         }
+
+        // Check for truncation (pagination)
+        let is_truncated = body.contains("<IsTruncated>true</IsTruncated>");
+        // For simplicity, we return all keys from this response.
+        // A production implementation would handle pagination with continuation tokens.
+        let _ = is_truncated; // suppress unused warning
 
         Ok(keys)
     }

@@ -413,9 +413,10 @@ impl Default for NotificationService {
 
 /// Compute HMAC-SHA256 signature for webhook
 fn compute_hmac(message: &str, secret: &str) -> String {
-    use sha2::Digest;
-use std::io::Write;
-    let mut hasher = sha2::Sha256::new();
-    hasher.write_all(format!("{}{}", message, secret).as_bytes()).ok();
-    hex::encode(hasher.finalize())
+    use hmac::{Hmac, Mac};
+    type HmacSha256 = Hmac<sha2::Sha256>;
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .expect("HMAC can take key of any size");
+    mac.update(message.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
 }

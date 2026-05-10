@@ -7,7 +7,9 @@ use clap::{Parser, Subcommand};
 use openvault_core::config::BackupConfig;
 use openvault_core::engine::engine_for_strategy;
 use openvault_core::healing::{HealingConfig, HealingEngine};
+use openvault_core::integrity::{Checksum, HashAlgorithm};
 use openvault_core::policy::{Policy321, PolicyEngine};
+use openvault_core::replicator::{ReplicatorConfig, ReplicationCoordinator};
 use openvault_core::restore::{ConflictStrategy, RestoreEngine, RestoreOptions};
 use openvault_core::snapshot::BackupStrategy;
 use openvault_core::storage::VaultStorage;
@@ -22,6 +24,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Initialize a new vault for backups
+    Init {
+        /// Directory to store the vault
+        #[arg(default_value = ".openvault-vault")]
+        path: PathBuf,
+        /// Storage type: local, s3, r2
+        #[arg(short, long, default_value = "local")]
+        storage_type: String,
+    },
     /// Execute a backup
     Backup {
         /// Source path to back up
@@ -38,6 +49,43 @@ enum Commands {
         /// Patterns to exclude (can be repeated)
         #[arg(short = 'e', long = "exclude")]
         excludes: Vec<String>,
+    },
+    /// Put a single file into the vault
+    Put {
+        /// File to store
+        file: PathBuf,
+        /// Snapshot ID to store the file under (creates a new snapshot if not specified)
+        #[arg(short, long)]
+        snapshot: Option<String>,
+        /// Storage path for backups
+        #[arg(short, long)]
+        storage: Option<PathBuf>,
+    },
+    /// Get a single file from the vault
+    Get {
+        /// Relative path of the file to retrieve
+        path: String,
+        /// Snapshot ID to retrieve from (uses latest if not specified)
+        #[arg(short, long)]
+        snapshot: Option<String>,
+        /// Output file path (defaults to current directory)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Storage path for backups
+        #[arg(short, long)]
+        storage: Option<PathBuf>,
+    },
+    /// List files in a snapshot or all snapshots
+    List {
+        /// Snapshot ID to list files from (lists all snapshots if not specified)
+        #[arg(short, long)]
+        snapshot: Option<String>,
+        /// Storage path for backups
+        #[arg(short, long)]
+        storage: Option<PathBuf>,
+        /// Path to YAML configuration file
+        #[arg(short, long)]
+        config: Option<PathBuf>,
     },
     /// Restore files from a snapshot
     Restore {
@@ -61,8 +109,8 @@ enum Commands {
     },
     /// Verify integrity of a snapshot
     Verify {
-        /// Snapshot ID to verify
-        snapshot_id: String,
+        /// Snapshot ID to verify (verifies all if not specified)
+        snapshot_id: Option<String>,
         /// Path to YAML configuration file
         #[arg(short, long)]
         config: Option<PathBuf>,
@@ -70,7 +118,7 @@ enum Commands {
         #[arg(short, long)]
         storage: Option<PathBuf>,
     },
-    /// Show backup policy health status
+    /// Show backup policy health status (3-2-1 rule)
     Status {
         /// Source path to check
         #[arg(short, long)]
@@ -88,6 +136,39 @@ enum Commands {
     /// Manage registered devices
     #[command(subcommand)]
     Device(DeviceCommands),
+    /// Replicate snapshots to additional backends (3-2-1 strategy)
+    Replicate {
+        /// Source path that was backed up
+        #[arg(short, long)]
+        source: Option<String>,
+        /// Primary storage path
+        #[arg(short, long)]
+        storage: Option<PathBuf>,
+        /// Additional storage paths for replicas (comma-separated)
+        #[arg(short, long)]
+        replicas: Option<String>,
+        /// Path to YAML configuration file
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Auto-remediate policy violations
+        #[arg(long)]
+        auto_remediate: bool,
+    },
+    /// Perform full 3-2-1 maintenance (check + heal + remediate)
+    Maintain {
+        /// Source path that was backed up
+        #[arg(short, long)]
+        source: Option<String>,
+        /// Primary storage path
+        #[arg(short, long)]
+        storage: Option<PathBuf>,
+        /// Additional storage paths for replicas (comma-separated)
+        #[arg(short, long)]
+        replicas: Option<String>,
+        /// Auto-remediate policy violations
+        #[arg(long, default_value_t = true)]
+        auto_remediate: bool,
+    },
     /// Self-healing operations
     #[command(subcommand)]
     Heal(HealCommands),
@@ -236,6 +317,37 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        // ── Init ───────────────────────────────────────────────────────
+        Commands::Init { path, storage_type } => {
+            match storage_type.as_str() {
+                "local" => {
+                    let storage = LocalVaultStorage::new(&path)
+                        .context("Failed to initialize local vault")?;
+                    println!("✅ Initialized local vault at {}", path.display());
+                    println!("   Backend: {}", storage.backend_name());
+                }
+                "s3" | "r2" => {
+                    println!("ℹ️  For {} storage, use --config with a YAML config file.", storage_type);
+                    println!("   Example config:");
+                    if storage_type == "s3" {
+                        println!(r#"   storage:
+  type: "s3"
+  bucket: "my-backups"
+  prefix: "vault/"
+  endpoint: "https://s3.amazonaws.com"
+  region: "us-east-1""#);
+                    } else {
+                        println!(r#"   storage:
+  type: "r2"
+  bucket: "my-r2-bucket"
+  prefix: "backups/"
+  account_id: "your-account-id""#);
+                    }
+                }
+                _ => anyhow::bail!("Unknown storage type: {}. Use local, s3, or r2", storage_type),
+            }
+        }
+
         // ── Backup ──────────────────────────────────────────────────────
         Commands::Backup { path, strategy, storage, config, excludes } => {
             let strategy = parse_strategy(&strategy)?;
@@ -282,6 +394,129 @@ async fn main() -> Result<()> {
                 snapshot.file_count(),
                 snapshot.total_size,
             );
+        }
+
+        // ── Put (single file) ──────────────────────────────────────────
+        Commands::Put { file, snapshot, storage } => {
+            let storage_path = storage.unwrap_or_else(|| PathBuf::from(".openvault-vault"));
+            let storage_box: Box<dyn VaultStorage> = Box::new(
+                LocalVaultStorage::new(&storage_path).context("Failed to initialize storage")?
+            );
+
+            if !file.exists() {
+                anyhow::bail!("File not found: {}", file.display());
+            }
+
+            let data = std::fs::read(&file).context("Failed to read file")?;
+            let checksum = Checksum::compute(&data, HashAlgorithm::Sha256);
+            let rel_path = file.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let snap_id = if let Some(sid) = snapshot {
+                sid
+            } else {
+                // Create a minimal snapshot for this file
+                let mut snap = openvault_core::snapshot::Snapshot::new(
+                    BackupStrategy::Full,
+                    file.parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                    storage_box.backend_name().to_string(),
+                    None,
+                );
+                snap.add_entry(openvault_core::snapshot::FileEntry {
+                    path: rel_path.clone(),
+                    size: data.len() as u64,
+                    mtime: std::fs::metadata(&file)
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0),
+                    checksum: checksum.value().to_string(),
+                });
+                storage_box.store_snapshot(&snap)?;
+                snap.id
+            };
+
+            storage_box.store_file(&snap_id, &rel_path, &data)?;
+            println!("✅ Stored {} ({} bytes, checksum: {}..) in snapshot {}",
+                rel_path, data.len(), checksum_short(checksum.value()), snap_id);
+        }
+
+        // ── Get (single file) ──────────────────────────────────────────
+        Commands::Get { path: rel_path, snapshot, output, storage } => {
+            let storage_path = storage.unwrap_or_else(|| PathBuf::from(".openvault-vault"));
+            let storage_box: Box<dyn VaultStorage> = Box::new(
+                LocalVaultStorage::new(&storage_path).context("Failed to initialize storage")?
+            );
+
+            let snap_id = if let Some(sid) = snapshot {
+                sid
+            } else {
+                // Find the latest snapshot containing this file
+                let snapshots = storage_box.list_snapshots()?;
+                let mut found: Option<String> = None;
+                for snap in &snapshots {
+                    if snap.entries.iter().any(|e| e.path == rel_path) {
+                        found = Some(snap.id.clone());
+                        break;
+                    }
+                }
+                found.ok_or_else(|| anyhow::anyhow!("File '{}' not found in any snapshot", rel_path))?
+            };
+
+            let data = storage_box.retrieve_file(&snap_id, &rel_path)
+                .context("Failed to retrieve file")?;
+
+            let output_path = output.unwrap_or_else(|| PathBuf::from(&rel_path));
+            if let Some(parent) = output_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&output_path, &data)?;
+            println!("✅ Retrieved {} → {} ({} bytes)", rel_path, output_path.display(), data.len());
+        }
+
+        // ── List ───────────────────────────────────────────────────────
+        Commands::List { snapshot, storage, config } => {
+            let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
+
+            if let Some(sid) = snapshot {
+                let snap = storage_box.load_snapshot(&sid)
+                    .context("Snapshot not found")?;
+                println!("Files in snapshot {} ({} files, {}):", snap.id, snap.file_count(), format_bytes(snap.total_size));
+                for entry in &snap.entries {
+                    println!("  {:12} {} ({}..)",
+                        format_bytes(entry.size),
+                        entry.path,
+                        checksum_short(&entry.checksum),
+                    );
+                }
+            } else {
+                let snapshots = storage_box.list_snapshots()?;
+                if snapshots.is_empty() {
+                    println!("No snapshots found.");
+                } else {
+                    println!("{:<30} {:<15} {:<8} {:<12} Created", "ID", "Strategy", "Files", "Size");
+                    println!("{}", "-".repeat(85));
+                    for snap in &snapshots {
+                        println!(
+                            "{:<30} {:<15} {:<8} {:<12} {}",
+                            snap.id,
+                            match snap.strategy {
+                                BackupStrategy::Full => "full",
+                                BackupStrategy::Incremental => "incremental",
+                                BackupStrategy::Differential => "differential",
+                            },
+                            snap.file_count(),
+                            format_bytes(snap.total_size),
+                            snap.created_at.format("%Y-%m-%d %H:%M:%S"),
+                        );
+                    }
+                    println!("\nTotal: {} snapshots", snapshots.len());
+                }
+            }
         }
 
         // ── Restore ─────────────────────────────────────────────────────
@@ -331,34 +566,66 @@ async fn main() -> Result<()> {
         Commands::Verify { snapshot_id, config, storage } => {
             let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
 
-            let snapshot = storage_box
-                .load_snapshot(&snapshot_id)
-                .context("Snapshot not found")?;
+            if let Some(sid) = snapshot_id {
+                let snapshot = storage_box
+                    .load_snapshot(&sid)
+                    .context("Snapshot not found")?;
 
-            eprintln!("🔍 Verifying snapshot {}...", snapshot_id);
+                eprintln!("🔍 Verifying snapshot {}...", sid);
 
-            let restore_engine = RestoreEngine::new(Arc::from(storage_box));
-            let report = restore_engine
-                .verify(&snapshot)
-                .await
-                .context("Verification failed")?;
+                let restore_engine = RestoreEngine::new(Arc::from(storage_box));
+                let report = restore_engine
+                    .verify(&snapshot)
+                    .await
+                    .context("Verification failed")?;
 
-            if report.is_ok() {
-                println!(
-                    "✅ Snapshot {} verified: {}",
-                    snapshot_id,
-                    report.summary()
-                );
-            } else {
-                eprintln!(
-                    "❌ Snapshot {} has issues: {}",
-                    snapshot_id,
-                    report.summary()
-                );
-                for err in &report.errors {
-                    eprintln!("  - {}: {}", err.path, err.message);
+                if report.is_ok() {
+                    println!(
+                        "✅ Snapshot {} verified: {}",
+                        sid,
+                        report.summary()
+                    );
+                } else {
+                    eprintln!(
+                        "❌ Snapshot {} has issues: {}",
+                        sid,
+                        report.summary()
+                    );
+                    for err in &report.errors {
+                        eprintln!("  - {}: {}", err.path, err.message);
+                    }
+                    std::process::exit(1);
                 }
-                std::process::exit(1);
+            } else {
+                // Verify all snapshots
+                let snapshots = storage_box.list_snapshots()?;
+                let mut total_ok = 0u32;
+                let mut total_failed = 0u32;
+
+                let restore_engine = RestoreEngine::new(Arc::from(storage_box));
+
+                for snap in &snapshots {
+                    match restore_engine.verify(snap).await {
+                        Ok(report) => {
+                            if report.is_ok() {
+                                println!("✅ {} - {}", snap.id, report.summary());
+                                total_ok += 1;
+                            } else {
+                                eprintln!("❌ {} - {}", snap.id, report.summary());
+                                total_failed += 1;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("❌ {} - verification error: {}", snap.id, e);
+                            total_failed += 1;
+                        }
+                    }
+                }
+
+                println!("\n📊 Summary: {} OK, {} failed out of {} snapshots", total_ok, total_failed, snapshots.len());
+                if total_failed > 0 {
+                    std::process::exit(1);
+                }
             }
         }
 
@@ -444,7 +711,7 @@ async fn main() -> Result<()> {
                 println!("    {} ({} bytes, checksum: {}..)",
                     entry.path,
                     entry.size,
-                    &entry.checksum.chars().take(8).collect::<String>(),
+                    checksum_short(&entry.checksum),
                 );
             }
         }
@@ -463,6 +730,98 @@ async fn main() -> Result<()> {
             });
             println!("📱 Device '{}' registered locally.", device_name);
             println!("   For multi-device sync, connect to OpenLink server.");
+        }
+
+        // ── Replicate (3-2-1 strategy) ────────────────────────────────
+        Commands::Replicate { source, storage, replicas, config, auto_remediate } => {
+            let storage_box = resolve_storage(config.as_ref(), storage.as_ref())?;
+            let source_key = source.unwrap_or_else(|| "/".to_string());
+
+            let replica_storages: Vec<Box<dyn VaultStorage>> = if let Some(repl) = replicas {
+                repl.split(',')
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|path| {
+                        let p = PathBuf::from(path.trim());
+                        Ok(Box::new(LocalVaultStorage::new(&p)
+                            .context(format!("Failed to init replica storage at {}", path.trim()))?) as Box<dyn VaultStorage>)
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            } else {
+                vec![]
+            };
+
+            let replicator_config = ReplicatorConfig {
+                auto_remediate,
+                ..Default::default()
+            };
+            let replicator = ReplicationCoordinator::new(replicator_config);
+
+            // Get latest snapshot from primary
+            match storage_box.latest_snapshot(source_key.clone())? {
+                Some(snapshot) => {
+                    let refs: Vec<&dyn VaultStorage> = replica_storages.iter().map(|s| s.as_ref()).collect();
+                    let result = replicator.replicate_snapshot(&snapshot, &*storage_box, &refs)?;
+                    
+                    if result.is_full_success() {
+                        println!("✅ {}", result.summary());
+                    } else {
+                        eprintln!("⚠️  {}", result.summary());
+                        for (backend, error) in &result.errors {
+                            eprintln!("  ❌ {}: {}", backend, error);
+                        }
+                    }
+                }
+                None => {
+                    eprintln!("No snapshots found for source: {}", source_key);
+                }
+            }
+        }
+
+        // ── Maintain (full 3-2-1 check) ──────────────────────────────
+        Commands::Maintain { source, storage, replicas, auto_remediate } => {
+            let default_storage = PathBuf::from(".openvault-vault");
+            let storage_path = storage.as_ref().unwrap_or(&default_storage);
+            let primary: Box<dyn VaultStorage> = Box::new(
+                LocalVaultStorage::new(storage_path).context("Failed to init primary storage")?
+            );
+            let source_key = source.unwrap_or_else(|| "/".to_string());
+
+            let replica_storages: Vec<Box<dyn VaultStorage>> = if let Some(repl) = replicas {
+                repl.split(',')
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|path| {
+                        let p = PathBuf::from(path.trim());
+                        Ok(Box::new(LocalVaultStorage::new(&p)
+                            .context(format!("Failed to init replica storage at {}", path.trim()))?) as Box<dyn VaultStorage>)
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            } else {
+                vec![]
+            };
+
+            let replicator_config = ReplicatorConfig {
+                auto_remediate,
+                ..ReplicatorConfig::default()
+            };
+            let replicator = ReplicationCoordinator::new(replicator_config);
+
+            let refs: Vec<&dyn VaultStorage> = replica_storages.iter().map(|s| s.as_ref()).collect();
+            let result = replicator.maintain_321(&source_key, &*primary, &refs)?;
+            
+            println!("🔍 {}", result.summary);
+
+            if !result.policy_healthy {
+                eprintln!("⚠️  3-2-1 policy violations detected. Consider adding more backends.");
+            }
+            if result.backends_with_corruption > 0 {
+                eprintln!("🔧 Corruption detected in {} backend(s), healing attempted.", result.backends_with_corruption);
+            }
+            if result.remediation_actions > 0 {
+                println!("✅ Auto-remediated: {} replica(s) created", result.remediation_actions);
+            }
+            if result.healing_actions > 0 {
+                println!("🔧 Healed: {} file(s) restored from healthy replicas", result.healing_actions);
+            }
         }
 
         // ── Heal ───────────────────────────────────────────────────────
@@ -520,6 +879,15 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Safely truncate checksum for display (avoid panic on short strings).
+fn checksum_short(checksum: &str) -> &str {
+    if checksum.len() >= 8 {
+        &checksum[..8]
+    } else {
+        checksum
+    }
 }
 
 fn format_bytes(bytes: u64) -> String {

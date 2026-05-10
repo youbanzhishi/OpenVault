@@ -93,9 +93,10 @@ async fn main() -> Result<()> {
     info!("Server listening on {}", addr);
     info!("API endpoints available at http://{}/api/v1/", addr);
 
-    // Run the server
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    // Run the server using axum 0.6's Server API
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await?;
 
     Ok(())
 }

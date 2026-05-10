@@ -36,6 +36,22 @@ pub trait VaultStorage: Send + Sync {
     /// Human-readable backend name (e.g., "local", "s3", "r2").
     fn backend_name(&self) -> &str;
 
+    /// Check if a specific file exists in a snapshot.
+    /// Default implementation tries retrieve_file and checks for error.
+    fn file_exists(&self, snapshot_id: &str, rel_path: &str) -> VaultResult<bool> {
+        match self.retrieve_file(snapshot_id, rel_path) {
+            Ok(_) => Ok(true),
+            Err(crate::error::VaultError::SnapshotNotFound(_)) => Ok(false),
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// Count the number of snapshots for a given source.
+    fn snapshot_count(&self, source: String) -> VaultResult<u32> {
+        let snapshots = self.list_snapshots()?;
+        Ok(snapshots.into_iter().filter(|s| s.source == source).count() as u32)
+    }
+
     /// Restore all files from a snapshot to the given target directory.
     fn restore_snapshot(&self, snapshot: &Snapshot, target: &std::path::Path) -> VaultResult<()>;
 }

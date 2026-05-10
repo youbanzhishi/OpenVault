@@ -9,7 +9,6 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-indexmap = "<2.14"
 tempfile = "3"
 
 # Common dependencies
@@ -21,3 +20,9 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
+
+# Pin versions that require edition2024 on older Rust compilers
+# base64ct >=1.7 uses edition2024 (pulled in by argon2/password-hash)
+base64ct = "<1.7"
+# indexmap >=2.7 uses edition2024 (pulled in by various deps)
+indexmap = "<2.7"

@@ -172,6 +172,11 @@ impl VaultStorage for LocalVaultStorage {
         "local"
     }
 
+    fn file_exists(&self, snapshot_id: &str, rel_path: &str) -> VaultResult<bool> {
+        let file_path = self.data_dir(snapshot_id).join(rel_path);
+        Ok(file_path.exists())
+    }
+
     fn restore_snapshot(&self, snapshot: &Snapshot, target: &Path) -> VaultResult<()> {
         std::fs::create_dir_all(target).map_err(|e| {
             VaultError::RestoreFailed(format!(

@@ -9,8 +9,8 @@ openvault-core = { path = "../openvault-core" }
 tokio = { version = "1", features = ["fs", "io-util"] }
 anyhow = "1"
 serde_json = "1"
-# S3 backend dependencies
-reqwest = { version = "0.12", features = ["blocking", "rustls-tls"], default-features = false }
+# S3 backend dependencies - use reqwest 0.11 for hyper 0.14 compat
+reqwest = { version = "0.11", features = ["blocking", "rustls-tls"], default-features = false }
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"

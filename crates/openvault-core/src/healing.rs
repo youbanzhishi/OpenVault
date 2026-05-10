@@ -338,6 +338,108 @@ impl HealingEngine {
         Ok(result)
     }
 
+    /// Heal corrupt files by trying multiple source backends in order.
+    ///
+    /// Tries each source storage in order until one provides healthy data.
+    /// This is useful for 3-2-1 strategies where multiple replicas exist.
+    pub fn heal_from_sources(
+        target_storage: &dyn VaultStorage,
+        source_storages: &[&dyn VaultStorage],
+        snapshot: &Snapshot,
+        config: &HealingConfig,
+    ) -> VaultResult<HealingResult> {
+        let scan = Self::scan(target_storage, snapshot)?;
+
+        let mut result = HealingResult {
+            snapshot_id: snapshot.id.clone(),
+            recovery_source: None,
+            ..Default::default()
+        };
+
+        if scan.is_all_healthy() {
+            return Ok(result);
+        }
+
+        let mut heals_this_run = 0u32;
+
+        for check in &scan.checks {
+            if check.healthy {
+                continue;
+            }
+
+            if config.max_heals_per_run > 0 && heals_this_run >= config.max_heals_per_run {
+                break;
+            }
+
+            // Try each source in order
+            let mut healed = false;
+            for source in source_storages {
+                match source.retrieve_file(&snapshot.id, &check.path) {
+                    Ok(healthy_data) => {
+                        // Verify source data
+                        let source_checksum = Checksum::compute(&healthy_data, HashAlgorithm::Sha256);
+                        if source_checksum.value() != check.expected_checksum {
+                            continue; // Try next source
+                        }
+
+                        // Write healthy data to target
+                        match target_storage.store_file(&snapshot.id, &check.path, &healthy_data) {
+                            Ok(()) => {
+                                // Verify after heal
+                                if config.verify_after_heal {
+                                    match target_storage.retrieve_file(&snapshot.id, &check.path) {
+                                        Ok(recovered) => {
+                                            let verify_checksum =
+                                                Checksum::compute(&recovered, HashAlgorithm::Sha256);
+                                            if verify_checksum.value() == check.expected_checksum {
+                                                result.files_healed += 1;
+                                                heals_this_run += 1;
+                                                result.recovery_source =
+                                                    Some(source.backend_name().to_string());
+                                                result.file_results.push(FileHealingResult {
+                                                    path: check.path.clone(),
+                                                    success: true,
+                                                    error: None,
+                                                });
+                                                healed = true;
+                                                break;
+                                            }
+                                        }
+                                        Err(_) => continue,
+                                    }
+                                } else {
+                                    result.files_healed += 1;
+                                    heals_this_run += 1;
+                                    result.recovery_source = Some(source.backend_name().to_string());
+                                    result.file_results.push(FileHealingResult {
+                                        path: check.path.clone(),
+                                        success: true,
+                                        error: None,
+                                    });
+                                    healed = true;
+                                    break;
+                                }
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+                    Err(_) => continue,
+                }
+            }
+
+            if !healed {
+                result.files_failed += 1;
+                result.file_results.push(FileHealingResult {
+                    path: check.path.clone(),
+                    success: false,
+                    error: Some("No healthy source available".to_string()),
+                });
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Scan all snapshots in a storage for corruption.
     pub fn scan_all(storage: &dyn VaultStorage) -> VaultResult<Vec<ScanResult>> {
         let snapshots = storage.list_snapshots()?;

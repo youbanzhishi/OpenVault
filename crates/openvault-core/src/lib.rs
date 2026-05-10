@@ -12,6 +12,7 @@ pub mod policy;
 pub mod restore;
 pub mod snapshot;
 pub mod storage;
+pub mod replicator;
 pub mod strategy;
 
 pub use config::BackupConfig;
@@ -28,5 +29,6 @@ pub use restore::{
     ConflictStrategy, RestoreEngine, RestoreError, RestoreOptions, RestoreReport,
     VerifyError, VerifyReport, EncryptedBlock,
 };
+pub use replicator::{ReplicatorConfig, ReplicationCoordinator, ReplicationResult, HealthCheckResult, MaintenanceResult};
 pub use snapshot::{BackupEntry, BackupStrategy, FileEntry, Snapshot, SnapshotId};
 pub use storage::VaultStorage;
