@@ -1,0 +1,44 @@
+# ============================================================================
+# OpenVault Docker Compose — Development / Single-node
+# ============================================================================
+version: "3.8"
+
+services:
+  openvault-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: openvault-server
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      - RUST_LOG=openvault_server=info
+      - OPENVAULT_BIND=0.0.0.0:8090
+      - OPENVAULT_DB_PATH=/data/db/openvault.db
+      - OPENVAULT_BACKUP_PATH=/data/backups
+      - OPENVAULT_JWT_SECRET=${OPENVAULT_JWT_SECRET:-change-me-in-production}
+    volumes:
+      - openvault-db:/data/db
+      - openvault-backups:/data/backups
+      - openvault-logs:/data/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - openvault-net
+
+volumes:
+  openvault-db:
+    driver: local
+  openvault-backups:
+    driver: local
+  openvault-logs:
+    driver: local
+
+networks:
+  openvault-net:
+    driver: bridge

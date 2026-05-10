@@ -4,6 +4,53 @@
 
 **OpenVault** is a secure, intelligent file backup and disaster recovery system written in Rust. It implements the **3-2-1 backup strategy** (3 copies, 2 media types, 1 offsite) with self-healing capabilities.
 
+[![CI](https://github.com/your-org/openvault/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/openvault/actions/workflows/ci.yml)
+[![Release](https://github.com/your-org/openvault/actions/workflows/release.yml/badge.svg)](https://github.com/your-org/openvault/actions/workflows/release.yml)
+[![Docker](https://img.shields.io/docker/v/ghcr.io/your-org/openvault?label=docker)](https://github.com/your-org/openvault/pkgs/container/openvault)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       OpenVault v1.0.0                       │
+├──────────┬──────────┬───────────┬──────────┬───────────────┤
+│   CLI    │  Server  │  Intel    │ Transport│   Storage     │
+│  (vault) │ (axum)   │  (AI)     │ (OpenLink│  Backends     │
+│          │          │           │   RPC)   │               │
+├──────────┴──────────┴───────────┴──────────┴───────────────┤
+│                    openvault-core                           │
+│  ┌─────────┐ ┌────────┐ ┌──────────┐ ┌──────────────────┐ │
+│  │ Engine  │ │Crypto  │ │ Integrity│ │  3-2-1 Policy    │ │
+│  └─────────┘ └────────┘ └──────────┘ └──────────────────┘ │
+│  ┌─────────┐ ┌────────┐ ┌──────────┐ ┌──────────────────┐ │
+│  │Restore  │ │Search  │ │  Audit   │ │  Self-Healing    │ │
+│  └─────────┘ └────────┘ └──────────┘ └──────────────────┘ │
+│  ┌─────────┐ ┌────────┐ ┌──────────┐ ┌──────────────────┐ │
+│  │Compress │ │Incr.   │ │ Pipeline │ │  Compliance      │ │
+│  └─────────┘ └────────┘ └──────────┘ └──────────────────┘ │
+│  ┌─────────┐ ┌────────┐ ┌──────────┐ ┌──────────────────┐ │
+│  │Tenant   │ │Notif.  │ │  Bench   │ │  Replicator      │ │
+│  └─────────┘ └────────┘ └──────────┘ └──────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+         │              │              │              │
+    ┌────┴────┐   ┌─────┴─────┐  ┌────┴────┐  ┌─────┴─────┐
+    │  Local  │   │  AWS S3   │  │   R2    │  │  Custom   │
+    │ Storage │   │  Storage  │  │ Storage │  │  Backend  │
+    └─────────┘   └───────────┘  └─────────┘  └───────────┘
+```
+
+## Crate Layout
+
+| Crate | Description | Lines of Code |
+|-------|-------------|---------------|
+| `openvault-core` | Core abstractions, backup engine, crypto, search, compliance | ~9,000 |
+| `openvault-server` | HTTP API server (axum), device management, web panel | ~4,500 |
+| `openvault-intel` | AI intelligence: file classification, anomaly, scheduling | ~1,500 |
+| `openvault-storage` | Storage backends: Local, S3, Cloudflare R2 | ~1,500 |
+| `openvault-transport` | OpenLink transport for remote management | ~1,500 |
+| `openvault-cli` | Command-line interface | ~500 |
+
 ## Features
 
 ### Core Backup Engine
@@ -29,12 +76,66 @@
 - **Multi-Source Healing**: Try multiple source backends in priority order
 - **Post-Heal Verification**: Verify data integrity after healing
 
-### Encryption
+### Encryption & Compression
 - **AES-256-GCM**: Authenticated encryption for backup data
-- **Argon2 Key Derivation**: Password-based key derivation
-- **Per-File Nonces**: Random 12-byte nonce for each encryption operation
+- **Argon2 / PBKDF2**: Password-based key derivation
+- **Hierarchical Key Management**: Master key + per-file data keys
+- **Zstd / LZ4 Compression**: Transparent compression pipeline
 
-### CLI
+### Search & Intelligence
+- **File Indexing**: Metadata index with keyword search
+- **Semantic Search**: AI-powered document search (keyword fallback)
+- **Natural Language Restore**: "Restore my tax documents from last year"
+- **File Classification**: Automatic file type classification
+- **Anomaly Detection**: Unusual backup pattern detection
+- **Smart Scheduling**: AI-optimized backup scheduling
+
+### Enterprise Features
+- **Multi-Tenant**: Tenant isolation with quotas and RBAC
+- **Audit Logging**: Tamper-proof audit trail with rotation
+- **Compliance Checking**: Automated compliance reports
+- **Notification Service**: Webhook, email, and in-app notifications
+
+### HTTP API Server
+- RESTful API for remote backup management
+- JWT authentication with scoped access
+- Device registration and heartbeat
+- Web management dashboard with WebSocket updates
+- Physical agent / robot API
+
+## Quick Start
+
+### Using Docker
+
+```bash
+docker compose -f docker/docker-compose.yml up -d
+curl http://localhost:8090/api/v1/health
+```
+
+### From Source
+
+```bash
+# Build
+cargo build --release -p openvault-server -p openvault-cli
+
+# Start server
+./target/release/openvault-server --bind 0.0.0.0:8090
+
+# Initialize a vault
+./target/release/vault init
+
+# Full backup
+./target/release/vault backup /path/to/data --strategy full
+
+# Verify integrity
+./target/release/vault verify
+
+# Check 3-2-1 policy compliance
+./target/release/vault status --source /path/to/data
+```
+
+### CLI Reference
+
 ```
 vault init           Initialize a new vault
 vault backup <path>  Execute a backup (full/incremental/differential)
@@ -50,69 +151,54 @@ vault heal scan      Scan for corruption
 vault heal repair    Heal corrupt files from healthy replica
 ```
 
-### HTTP API Server
-- RESTful API for remote backup management
-- JWT authentication with scoped access
-- Device registration and heartbeat
-- Policy management
-- Webhook notifications
+## Performance Benchmarks
 
-## Architecture
+OpenVault includes a comprehensive benchmark suite (`openvault-core::bench`):
 
-```
-OpenVault
-├── openvault-core       # Core abstractions, types, engine
-├── openvault-storage    # Storage backends (Local, S3, R2)
-├── openvault-cli        # Command-line interface
-├── openvault-transport  # OpenLink transport for remote management
-└── openvault-server     # HTTP API server
-```
+| Benchmark | Description |
+|-----------|-------------|
+| `small_file_batch_backup` | 1,000 files (< 1KB each) backup throughput |
+| `large_file_backup_checksum` | 100MB file SHA-256 checksum throughput |
+| `full_backup_500_files` | Full snapshot creation (500 files) |
+| `incremental_backup_50_files` | Incremental snapshot creation (50 changed files) |
+| `single_file_restore_latency` | Single file restore setup latency |
+| `batch_restore_100_files` | Batch restore setup throughput |
+| `cross_device_restore_latency` | Cross-device restore latency estimation |
+| `aes256gcm_encrypt/decrypt` | AES-256-GCM encryption/decryption throughput |
+| `aes256gcm_encrypt_{4kb,64kb,1mb}` | Block size impact on encryption |
+| `index_build_10k_entries` | File index construction speed |
+| `keyword_search_10k_index` | Keyword search across 10K entries |
+| `semantic_search_1k_index` | Semantic search across 1K entries |
 
-## Quick Start
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Getting Started](docs/getting-started.md) | Installation, configuration, first backup |
+| [API Reference](docs/api-reference.md) | Complete HTTP API documentation |
+| [Backup Strategies](docs/backup-strategies.md) | Strategy guide, templates, encryption |
+| [Deployment Guide](docs/deployment.md) | Docker, production, monitoring, troubleshooting |
+
+## Development
+
+### Building
 
 ```bash
-# Initialize a local vault
-vault init
+# Check core crates
+cargo check -p openvault-core -p openvault-server -p openvault-intel
 
-# Full backup
-vault backup /path/to/data --strategy full
+# Run tests
+cargo test -p openvault-core
 
-# Incremental backup
-vault backup /path/to/data --strategy incremental
-
-# Verify integrity
-vault verify
-
-# Check 3-2-1 policy compliance
-vault status --source /path/to/data
-
-# Replicate to additional storage
-vault replicate --source /path/to/data --replicas /backup1,/backup2
-
-# Self-heal corrupt files
-vault heal repair snap-001 --source-storage /healthy-vault --target-storage /corrupt-vault
+# Lint
+cargo clippy -p openvault-core -p openvault-server -p openvault-intel
+cargo fmt --all -- --check
 ```
 
-## Configuration (YAML)
+### CI/CD
 
-```yaml
-name: "my-backup"
-source: "/data/important"
-strategy: "full"
-storage:
-  type: "s3"
-  bucket: "my-backups"
-  prefix: "vault/"
-  endpoint: "https://s3.amazonaws.com"
-  region: "us-east-1"
-  access_key_id: "AKIAIOSFODNN7EXAMPLE"
-  secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-exclude:
-  - "*.tmp"
-  - ".git"
-  - "node_modules"
-schedule: "0 2 * * *"  # Daily at 2 AM
-```
+- **CI** (`.github/workflows/ci.yml`): Runs on every push — check, test, clippy, fmt
+- **Release** (`.github/workflows/release.yml`): Triggered by `v*` tags — build binary, Docker image, GitHub Release
 
 ## License
 

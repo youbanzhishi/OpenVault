@@ -25,6 +25,7 @@
 //! - **Notification**: `NotificationSvc`, `NotificationRule` — notification with dedup
 
 pub mod audit;
+pub mod bench;
 pub mod compliance;
 pub mod config;
 pub mod crypto;
