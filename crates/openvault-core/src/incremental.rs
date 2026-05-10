@@ -332,7 +332,7 @@ impl ChunkStore {
     /// Persist metadata to storage.
     pub fn save_meta(&self, snapshot_id: &str) -> IncrementalResult<()> {
         let meta = self.meta.lock().unwrap();
-        let data = serde_json::to_vec(&meta).map_err(|e| {
+        let data = serde_json::to_vec(&*meta).map_err(|e| {
             VaultError::Incremental(format!("Failed to serialize chunk store meta: {}", e))
         })?;
         self.storage
@@ -1011,7 +1011,7 @@ mod tests {
 
         for chunk in &chunks {
             // Last chunk can be smaller than min_chunk
-            if chunk.offset + chunk.size as u64 < data.len() as u64 {
+            if chunk.offset + (chunk.size as u64) < data.len() as u64 {
                 assert!(
                     chunk.size >= chunker.min_chunk,
                     "Chunk size {} < min {}",

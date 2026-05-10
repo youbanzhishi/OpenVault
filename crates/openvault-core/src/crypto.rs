@@ -496,7 +496,7 @@ impl VaultCrypto for Aes256GcmCrypto {
         let nonce = Nonce::from_slice(&data.nonce);
 
         cipher
-            .decrypt(nonce, &data.ciphertext)
+            .decrypt(nonce, data.ciphertext.as_slice())
             .map_err(|e| VaultError::Crypto(format!("Decryption failed: {}", e)))
     }
 
@@ -538,8 +538,7 @@ impl KeyDerivation {
             salt,
             iterations,
             &mut key,
-        )
-        .map_err(|e| VaultError::Crypto(format!("PBKDF2 derivation failed: {}", e)))?;
+        );
         Ok(Key256::from_bytes(&key)?)
     }
 
