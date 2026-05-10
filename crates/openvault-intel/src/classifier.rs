@@ -228,6 +228,20 @@ impl FileClassifier {
             || path_lower.contains("\\tmp\\")
             || path_lower.contains("\\temp\\")
             || path_lower.contains("\\cache\\")
+            || path_lower.starts_with("tmp/")
+            || path_lower.starts_with("temp/")
+            || path_lower.starts_with("cache/")
+            || path_lower.starts_with("__pycache__/")
+            || path_lower.starts_with(".cache/")
+        {
+            return FileCategory::Temp;
+        }
+
+        // Node modules, build artifacts → temp (check before extension-based categories)
+        if path_lower.contains("/node_modules/")
+            || path_lower.contains("/target/debug/")
+            || path_lower.contains("/build/")
+            || path_lower.contains("/dist/")
         {
             return FileCategory::Temp;
         }
@@ -285,15 +299,6 @@ impl FileClassifier {
         let data_exts = ["db", "sqlite", "sql", "csv", "tsv", "parquet", "hdf5"];
         if data_exts.contains(&ext.as_str()) {
             return FileCategory::Data;
-        }
-
-        // Node modules, build artifacts → temp
-        if path_lower.contains("/node_modules/")
-            || path_lower.contains("/target/debug/")
-            || path_lower.contains("/build/")
-            || path_lower.contains("/dist/")
-        {
-            return FileCategory::Temp;
         }
 
         FileCategory::Other

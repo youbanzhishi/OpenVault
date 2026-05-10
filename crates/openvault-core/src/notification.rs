@@ -115,7 +115,7 @@ pub struct NotificationRule {
 impl Default for NotificationRule {
     fn default() -> Self {
         Self {
-            rule_id: uuid::Uuid::new_v4().to_string(),
+            rule_id: "default".to_string(),
             name: "Default Rule".to_string(),
             notification_types: vec![],
             min_severity: Severity::Info,

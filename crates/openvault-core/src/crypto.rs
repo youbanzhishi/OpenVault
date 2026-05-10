@@ -86,8 +86,16 @@ impl Key256 {
     /// Create from password using Argon2 key derivation.
     pub fn from_password(password: &str, salt: &[u8]) -> CryptoResult<Self> {
         use argon2::password_hash::SaltString;
+        // Ensure salt meets minimum length requirement (8 bytes for Argon2)
+        let salt_vec: Vec<u8> = if salt.len() < 8 {
+            let mut padded = salt.to_vec();
+            padded.resize(8, 0);
+            padded
+        } else {
+            salt.to_vec()
+        };
         
-        let salt_b64 = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, salt);
+        let salt_b64 = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &salt_vec);
         let salt = SaltString::from_b64(&salt_b64)
             .map_err(|e| VaultError::Crypto(format!("Invalid salt: {}", e)))?;
         

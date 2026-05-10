@@ -154,8 +154,8 @@ impl PartialOrd for ScheduleEntry {
 impl Ord for ScheduleEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // Higher priority first
-        other.priority.cmp(&self.priority)
-            .then_with(|| other.network.quality_score().partial_cmp(&self.network.quality_score()).unwrap_or(Ordering::Equal))
+        self.priority.cmp(&other.priority)
+            .then_with(|| self.network.quality_score().partial_cmp(&other.network.quality_score()).unwrap_or(Ordering::Equal))
     }
 }
 

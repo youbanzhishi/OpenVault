@@ -901,6 +901,7 @@ impl NaturalLanguageQuery {
         if let Some(pos) = text.find(keyword) {
             let before = &text[..pos];
             let num_str: String = before.chars().rev()
+                .skip_while(|c| c.is_whitespace())
                 .take_while(|c| c.is_ascii_digit())
                 .collect::<String>()
                 .chars().rev().collect();
