@@ -6,7 +6,9 @@ pub mod config;
 pub mod crypto;
 pub mod engine;
 pub mod error;
+pub mod healing;
 pub mod integrity;
+pub mod policy;
 pub mod restore;
 pub mod snapshot;
 pub mod storage;
@@ -19,7 +21,9 @@ pub use crypto::{
 };
 pub use engine::BackupEngine;
 pub use error::{VaultError, VaultResult};
+pub use healing::{HealingConfig, HealingEngine, HealingResult, ScanResult};
 pub use integrity::{Checksum, HashAlgorithm, IntegrityEngine, IntegrityCheck, IntegrityReport};
+pub use policy::{Policy321, PolicyEngine, PolicyHealth, PolicyViolation, ViolationType, RemediationAction, RemediationType};
 pub use restore::{
     ConflictStrategy, RestoreEngine, RestoreError, RestoreOptions, RestoreReport,
     VerifyError, VerifyReport, EncryptedBlock,

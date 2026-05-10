@@ -8,7 +8,7 @@ description = "OpenVault OpenLink transport integration for remote backup manage
 # Core dependencies
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "fs", "io-util", "sync", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "io-util", "sync", "net", "macros"] }
 thiserror = "1"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }

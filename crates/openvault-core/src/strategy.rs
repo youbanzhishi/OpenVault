@@ -154,6 +154,85 @@ impl BackupEngine for IncrementalBackup {
 }
 
 // ---------------------------------------------------------------------------
+// Differential Backup
+// ---------------------------------------------------------------------------
+
+/// Differential backup strategy: copies all files that changed since the
+/// last **full** backup. Unlike incremental (which compares against the
+/// immediately-previous snapshot), differential always compares against the
+/// most recent full backup, so each differential snapshot is self-contained
+/// relative to the full base.
+pub struct DifferentialBackup;
+
+impl BackupEngine for DifferentialBackup {
+    fn execute(&self, config: &BackupConfig, storage: &dyn VaultStorage) -> VaultResult<Snapshot> {
+        let source = &config.source;
+        let source_key = source.to_string_lossy().to_string();
+
+        // Find the latest FULL snapshot as the reference base
+        let base_full = storage.latest_full_snapshot(source_key.clone())?;
+
+        let parent_id = base_full.as_ref().map(|p| p.id.clone());
+
+        let mut snapshot = Snapshot::new(
+            BackupStrategy::Differential,
+            source_key,
+            storage.backend_name().to_string(),
+            parent_id,
+        );
+
+        let files = collect_files(source, &config.exclude)?;
+
+        // Build file map from the full base snapshot
+        let base_files: std::collections::HashMap<String, FileEntry> = match &base_full {
+            Some(base) => base
+                .entries
+                .iter()
+                .map(|e| (e.path.clone(), e.clone()))
+                .collect(),
+            None => std::collections::HashMap::new(),
+        };
+
+        for file_path in &files {
+            let rel = relative_path(source, file_path)?;
+            let metadata = std::fs::metadata(file_path)?;
+            let mtime = metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let size = metadata.len();
+
+            let changed = match base_files.get(&rel) {
+                Some(existing) => existing.mtime != mtime || existing.size != size,
+                None => true,
+            };
+
+            if changed {
+                let checksum = sha256_file(file_path)?;
+                let entry = FileEntry {
+                    path: rel,
+                    size,
+                    mtime,
+                    checksum,
+                };
+                let data = std::fs::read(file_path)?;
+                storage.store_file(&snapshot.id, &entry.path, &data)?;
+                snapshot.add_entry(entry);
+            }
+        }
+
+        storage.store_snapshot(&snapshot)?;
+        Ok(snapshot)
+    }
+
+    fn name(&self) -> &str {
+        "differential"
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -239,5 +318,11 @@ mod tests {
     fn test_glob_match_prefix_star() {
         assert!(glob_match(".git", ".git/config"));
         assert!(glob_match(".git", "some/.git/refs"));
+    }
+
+    #[test]
+    fn test_differential_engine_name() {
+        let diff = DifferentialBackup;
+        assert_eq!(diff.name(), "differential");
     }
 }

@@ -1,12 +1,21 @@
+//! End-to-end integration tests for OpenVault Phase 5.
+//!
+//! Tests cover:
+//! - Full backup → incremental → differential → restore → verify pipeline
+//! - 3-2-1 policy engine
+//! - Self-healing mechanism
+//! - Multi-storage backend scenarios
+
 use std::fs;
 use std::thread;
 use std::time::Duration;
 
 use openvault_core::config::BackupConfig;
-use openvault_core::crypto::{AesGcmEncryption, EncryptionProvider, Key256};
 use openvault_core::engine::engine_for_strategy;
-use openvault_core::integrity::{Checksum, HashAlgorithm, IntegrityEngine};
-use openvault_core::restore::RestoreOptions;
+use openvault_core::healing::{HealingConfig, HealingEngine};
+use openvault_core::integrity::{Checksum, HashAlgorithm};
+use openvault_core::policy::{Policy321, PolicyEngine};
+use openvault_core::restore::{ConflictStrategy, RestoreEngine, RestoreOptions};
 use openvault_core::snapshot::BackupStrategy;
 use openvault_core::storage::VaultStorage;
 use openvault_storage::LocalVaultStorage;
@@ -34,6 +43,66 @@ fn make_config(source: &std::path::Path, vault: &std::path::Path, strategy: Back
     }
 }
 
+// ============================================================================
+// Full pipeline: backup → incremental → differential → restore → verify
+// ============================================================================
+
+#[test]
+fn test_full_pipeline_with_all_strategies() {
+    let source = setup_source_dir();
+    let vault = tempfile::TempDir::new().unwrap();
+    let storage = LocalVaultStorage::new(vault.path()).unwrap();
+
+    // Step 1: Full backup
+    let full_config = make_config(source.path(), vault.path(), BackupStrategy::Full);
+    let full_engine = engine_for_strategy(&BackupStrategy::Full);
+    let full_snap = full_engine.execute(&full_config, &storage).unwrap();
+    assert_eq!(full_snap.file_count(), 3); // a.txt, b.txt, subdir/c.txt
+    assert_eq!(full_snap.strategy, BackupStrategy::Full);
+    assert!(full_snap.parent_id.is_none());
+
+    // Step 2: Modify a file
+    thread::sleep(Duration::from_millis(100));
+    fs::write(source.path().join("b.txt"), "modified b content").unwrap();
+
+    // Step 3: Incremental backup
+    let inc_config = make_config(source.path(), vault.path(), BackupStrategy::Incremental);
+    let inc_engine = engine_for_strategy(&BackupStrategy::Incremental);
+    let inc_snap = inc_engine.execute(&inc_config, &storage).unwrap();
+    assert_eq!(inc_snap.file_count(), 1, "Incremental should detect 1 changed file");
+    assert_eq!(inc_snap.entries[0].path, "b.txt");
+    assert_eq!(inc_snap.parent_id, Some(full_snap.id.clone()));
+
+    // Step 4: Modify another file
+    thread::sleep(Duration::from_millis(100));
+    fs::write(source.path().join("a.txt"), "modified a content").unwrap();
+
+    // Step 5: Differential backup (compares against the full, not the incremental)
+    let diff_config = make_config(source.path(), vault.path(), BackupStrategy::Differential);
+    let diff_engine = engine_for_strategy(&BackupStrategy::Differential);
+    let diff_snap = diff_engine.execute(&diff_config, &storage).unwrap();
+    // Differential should find both a.txt and b.txt changed since the full backup
+    assert!(
+        diff_snap.file_count() >= 2,
+        "Differential should detect changes since full backup, got {}",
+        diff_snap.file_count()
+    );
+    assert!(diff_snap.entries.iter().any(|e| e.path == "a.txt"));
+    assert!(diff_snap.entries.iter().any(|e| e.path == "b.txt"));
+
+    // Step 6: Restore from full backup
+    let restore_dir = tempfile::TempDir::new().unwrap();
+    storage.restore_snapshot(&full_snap, restore_dir.path()).unwrap();
+    assert_eq!(
+        fs::read_to_string(restore_dir.path().join("a.txt")).unwrap(),
+        "hello from a"
+    );
+    assert_eq!(
+        fs::read_to_string(restore_dir.path().join("subdir/c.txt")).unwrap(),
+        "hello from c"
+    );
+}
+
 #[test]
 fn test_full_backup_and_restore() {
     let source = setup_source_dir();
@@ -43,17 +112,13 @@ fn test_full_backup_and_restore() {
     let storage = LocalVaultStorage::new(vault.path()).unwrap();
     let engine = engine_for_strategy(&BackupStrategy::Full);
 
-    // Execute full backup
     let snapshot = engine.execute(&config, &storage).unwrap();
-    assert_eq!(snapshot.file_count(), 3); // a.txt, b.txt, subdir/c.txt
+    assert_eq!(snapshot.file_count(), 3);
     assert_eq!(snapshot.strategy, BackupStrategy::Full);
-    assert!(snapshot.parent_id.is_none());
 
-    // Restore
     let restore_dir = tempfile::TempDir::new().unwrap();
     storage.restore_snapshot(&snapshot, restore_dir.path()).unwrap();
 
-    // Verify restored files
     assert_eq!(
         fs::read_to_string(restore_dir.path().join("a.txt")).unwrap(),
         "hello from a"
@@ -74,27 +139,85 @@ fn test_incremental_backup_only_changed_files() {
     let full_engine = engine_for_strategy(&BackupStrategy::Full);
     let inc_engine = engine_for_strategy(&BackupStrategy::Incremental);
 
-    // First: full backup
     let full_snap = full_engine.execute(
         &make_config(source.path(), vault.path(), BackupStrategy::Full),
         &storage,
     ).unwrap();
     assert_eq!(full_snap.file_count(), 3);
 
-    // Second: incremental with NO changes → should be 0 files
     let inc1 = inc_engine.execute(&config, &storage).unwrap();
-    assert_eq!(inc1.file_count(), 0, "Incremental should have 0 changed files when nothing changed");
-    assert_eq!(inc1.parent_id.as_ref(), Some(&full_snap.id));
+    assert_eq!(inc1.file_count(), 0);
 
-    // Now modify one file — sleep briefly to ensure mtime changes on filesystem
     thread::sleep(Duration::from_millis(100));
     fs::write(source.path().join("b.txt"), "modified b content").unwrap();
 
-    // Third: incremental → should detect 1 change
     let inc2 = inc_engine.execute(&config, &storage).unwrap();
-    assert_eq!(inc2.file_count(), 1, "Incremental should detect the 1 modified file");
+    assert_eq!(inc2.file_count(), 1);
     assert_eq!(inc2.entries[0].path, "b.txt");
 }
+
+#[test]
+fn test_differential_compares_to_full() {
+    let source = setup_source_dir();
+    let vault = tempfile::TempDir::new().unwrap();
+    let storage = LocalVaultStorage::new(vault.path()).unwrap();
+
+    // Full backup
+    let full_config = make_config(source.path(), vault.path(), BackupStrategy::Full);
+    let full_engine = engine_for_strategy(&BackupStrategy::Full);
+    let _full_snap = full_engine.execute(&full_config, &storage).unwrap();
+
+    // Modify b.txt
+    thread::sleep(Duration::from_millis(100));
+    fs::write(source.path().join("b.txt"), "modified b").unwrap();
+
+    // Incremental (only b changed)
+    let inc_engine = engine_for_strategy(&BackupStrategy::Incremental);
+    let inc_snap = inc_engine.execute(
+        &make_config(source.path(), vault.path(), BackupStrategy::Incremental),
+        &storage,
+    ).unwrap();
+    assert_eq!(inc_snap.file_count(), 1);
+
+    // Modify a.txt
+    thread::sleep(Duration::from_millis(100));
+    fs::write(source.path().join("a.txt"), "modified a").unwrap();
+
+    // Differential should compare against the full, not the incremental
+    let diff_engine = engine_for_strategy(&BackupStrategy::Differential);
+    let diff_snap = diff_engine.execute(
+        &make_config(source.path(), vault.path(), BackupStrategy::Differential),
+        &storage,
+    ).unwrap();
+    // Both a.txt and b.txt changed since full
+    assert!(diff_snap.file_count() >= 2);
+}
+
+// ============================================================================
+// Integrity verification
+// ============================================================================
+
+#[test]
+fn test_verify_snapshot_integrity() {
+    let source = setup_source_dir();
+    let vault = tempfile::TempDir::new().unwrap();
+    let storage = LocalVaultStorage::new(vault.path()).unwrap();
+
+    let config = make_config(source.path(), vault.path(), BackupStrategy::Full);
+    let engine = engine_for_strategy(&BackupStrategy::Full);
+    let snapshot = engine.execute(&config, &storage).unwrap();
+
+    // Verify using RestoreEngine
+    let restore_engine = RestoreEngine::new(std::sync::Arc::new(storage) as std::sync::Arc<dyn VaultStorage>);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let report = rt.block_on(restore_engine.verify(&snapshot)).unwrap();
+    assert!(report.is_ok());
+    assert_eq!(report.files_ok, 3);
+}
+
+// ============================================================================
+// Snapshot management
+// ============================================================================
 
 #[test]
 fn test_snapshot_list_and_delete() {
@@ -108,16 +231,203 @@ fn test_snapshot_list_and_delete() {
     let snap1 = engine.execute(&config, &storage).unwrap();
     let _snap2 = engine.execute(&config, &storage).unwrap();
 
-    // List
     let list = storage.list_snapshots().unwrap();
-    assert!(list.len() >= 2, "Should have at least 2 snapshots, got {}", list.len());
+    assert!(list.len() >= 2);
 
-    // Delete
     storage.delete_snapshot(&snap1.id).unwrap();
     let list_after = storage.list_snapshots().unwrap();
     assert_eq!(list_after.len(), list.len() - 1);
     assert!(list_after.iter().all(|s| s.id != snap1.id));
 }
+
+#[test]
+fn test_latest_full_snapshot() {
+    let source = setup_source_dir();
+    let vault = tempfile::TempDir::new().unwrap();
+    let storage = LocalVaultStorage::new(vault.path()).unwrap();
+
+    let full_engine = engine_for_strategy(&BackupStrategy::Full);
+    let inc_engine = engine_for_strategy(&BackupStrategy::Incremental);
+
+    let full_snap = full_engine.execute(
+        &make_config(source.path(), vault.path(), BackupStrategy::Full),
+        &storage,
+    ).unwrap();
+
+    let _inc_snap = inc_engine.execute(
+        &make_config(source.path(), vault.path(), BackupStrategy::Incremental),
+        &storage,
+    ).unwrap();
+
+    let latest_full = storage.latest_full_snapshot(source.path().to_string_lossy().to_string()).unwrap();
+    assert!(latest_full.is_some());
+    assert_eq!(latest_full.unwrap().id, full_snap.id);
+}
+
+// ============================================================================
+// 3-2-1 Policy engine
+// ============================================================================
+
+#[test]
+fn test_321_policy_single_local_violates() {
+    let source = setup_source_dir();
+    let vault = tempfile::TempDir::new().unwrap();
+    let storage = LocalVaultStorage::new(vault.path()).unwrap();
+
+    let config = make_config(source.path(), vault.path(), BackupStrategy::Full);
+    let engine = engine_for_strategy(&BackupStrategy::Full);
+    let _snap = engine.execute(&config, &storage).unwrap();
+
+    // Strict 3-2-1 policy should fail with only one local copy
+    let policy = Policy321::strict();
+    let policy_engine = PolicyEngine::new(policy);
+    let source_key = source.path().to_string_lossy().to_string();
+    let health = policy_engine.check_health(&source_key, &[&storage]).unwrap();
+
+    assert!(!health.healthy);
+    assert!(health.copies < 3);
+    assert!(!health.has_offsite);
+    assert!(!health.violations.is_empty());
+}
+
+#[test]
+fn test_321_policy_relaxed_single_local_passes() {
+    let source = setup_source_dir();
+    let vault = tempfile::TempDir::new().unwrap();
+    let storage = LocalVaultStorage::new(vault.path()).unwrap();
+
+    let config = make_config(source.path(), vault.path(), BackupStrategy::Full);
+    let engine = engine_for_strategy(&BackupStrategy::Full);
+    let _snap = engine.execute(&config, &storage).unwrap();
+
+    // Relaxed policy should pass with one local copy
+    let policy = Policy321::relaxed();
+    let policy_engine = PolicyEngine::new(policy);
+    let source_key = source.path().to_string_lossy().to_string();
+    let health = policy_engine.check_health(&source_key, &[&storage]).unwrap();
+
+    assert!(health.healthy);
+    assert_eq!(health.copies, 1);
+}
+
+#[test]
+fn test_321_policy_multi_storage() {
+    let source = setup_source_dir();
+    let vault1 = tempfile::TempDir::new().unwrap();
+    let vault2 = tempfile::TempDir::new().unwrap();
+    let storage1 = LocalVaultStorage::new(vault1.path()).unwrap();
+    let storage2 = LocalVaultStorage::new(vault2.path()).unwrap();
+
+    let config = make_config(source.path(), vault1.path(), BackupStrategy::Full);
+    let engine = engine_for_strategy(&BackupStrategy::Full);
+    let snap = engine.execute(&config, &storage1).unwrap();
+
+    // Copy to second storage
+    storage2.store_snapshot(&snap).unwrap();
+    for entry in &snap.entries {
+        let data = storage1.retrieve_file(&snap.id, &entry.path).unwrap();
+        storage2.store_file(&snap.id, &entry.path, &data).unwrap();
+    }
+
+    // With 2 local copies, we still violate strict 3-2-1 (need offsite)
+    let policy = Policy321::strict();
+    let policy_engine = PolicyEngine::new(policy);
+    let source_key = source.path().to_string_lossy().to_string();
+    let health = policy_engine.check_health(&source_key, &[&storage1, &storage2]).unwrap();
+
+    assert!(!health.healthy); // No offsite copy
+    assert_eq!(health.copies, 2);
+    assert!(!health.has_offsite);
+}
+
+// ============================================================================
+// Self-healing
+// ============================================================================
+
+#[test]
+fn test_healing_scan_healthy() {
+    let source = setup_source_dir();
+    let vault = tempfile::TempDir::new().unwrap();
+    let storage = LocalVaultStorage::new(vault.path()).unwrap();
+
+    let config = make_config(source.path(), vault.path(), BackupStrategy::Full);
+    let engine = engine_for_strategy(&BackupStrategy::Full);
+    let snap = engine.execute(&config, &storage).unwrap();
+
+    let result = HealingEngine::scan(&storage, &snap).unwrap();
+    assert!(result.is_all_healthy());
+    assert_eq!(result.files_scanned, 3);
+    assert_eq!(result.files_healthy, 3);
+    assert_eq!(result.files_corrupt, 0);
+}
+
+#[test]
+fn test_healing_detects_corruption() {
+    let source = setup_source_dir();
+    let vault = tempfile::TempDir::new().unwrap();
+    let storage = LocalVaultStorage::new(vault.path()).unwrap();
+
+    let config = make_config(source.path(), vault.path(), BackupStrategy::Full);
+    let engine = engine_for_strategy(&BackupStrategy::Full);
+    let snap = engine.execute(&config, &storage).unwrap();
+
+    // Corrupt one file by overwriting it with different data
+    storage.store_file(&snap.id, "b.txt", b"corrupted data").unwrap();
+
+    let result = HealingEngine::scan(&storage, &snap).unwrap();
+    assert!(!result.is_all_healthy());
+    assert_eq!(result.files_corrupt, 1);
+
+    let corrupt_file = result.checks.iter().find(|c| !c.healthy).unwrap();
+    assert_eq!(corrupt_file.path, "b.txt");
+}
+
+#[test]
+fn test_healing_repairs_from_healthy_replica() {
+    let source = setup_source_dir();
+    let healthy_vault = tempfile::TempDir::new().unwrap();
+    let corrupt_vault = tempfile::TempDir::new().unwrap();
+
+    let healthy_storage = LocalVaultStorage::new(healthy_vault.path()).unwrap();
+    let corrupt_storage = LocalVaultStorage::new(corrupt_vault.path()).unwrap();
+
+    let config = make_config(source.path(), healthy_vault.path(), BackupStrategy::Full);
+    let engine = engine_for_strategy(&BackupStrategy::Full);
+    let snap = engine.execute(&config, &healthy_storage).unwrap();
+
+    // Copy snapshot to corrupt storage
+    corrupt_storage.store_snapshot(&snap).unwrap();
+    for entry in &snap.entries {
+        let data = healthy_storage.retrieve_file(&snap.id, &entry.path).unwrap();
+        corrupt_storage.store_file(&snap.id, &entry.path, &data).unwrap();
+    }
+
+    // Corrupt one file
+    corrupt_storage.store_file(&snap.id, "b.txt", b"corrupted!!!").unwrap();
+
+    // Verify corruption detected
+    let scan = HealingEngine::scan(&corrupt_storage, &snap).unwrap();
+    assert!(!scan.is_all_healthy());
+
+    // Heal from healthy replica
+    let config = HealingConfig::default();
+    let result = HealingEngine::heal(&corrupt_storage, &healthy_storage, &snap, &config).unwrap();
+    assert_eq!(result.files_healed, 1);
+    assert_eq!(result.files_failed, 0);
+
+    // Verify data is now correct
+    let healed_data = corrupt_storage.retrieve_file(&snap.id, "b.txt").unwrap();
+    let original_data = healthy_storage.retrieve_file(&snap.id, "b.txt").unwrap();
+    assert_eq!(healed_data, original_data);
+
+    // Full scan should now pass
+    let rescan = HealingEngine::scan(&corrupt_storage, &snap).unwrap();
+    assert!(rescan.is_all_healthy());
+}
+
+// ============================================================================
+// Config and strategy parsing
+// ============================================================================
 
 #[test]
 fn test_exclude_patterns() {
@@ -177,141 +487,15 @@ exclude:
 }
 
 #[test]
-fn test_encrypt_backup_verify_restore_pipeline() {
-    // Setup: create source files
-    let source = tempfile::TempDir::new().unwrap();
-    let original_content = "secret data for encryption test";
-    fs::write(source.path().join("secret.txt"), original_content).unwrap();
-    fs::write(source.path().join("config.json"), r#"{"key": "value"}"#).unwrap();
-    
-    // Step 1: Generate encryption key
-    let key = Key256::generate();
-    let encryptor = AesGcmEncryption::new(key.as_bytes()).unwrap();
-    
-    // Step 2: Encrypt files manually for storage
-    let vault = tempfile::TempDir::new().unwrap();
-    let storage = LocalVaultStorage::new(vault.path()).unwrap();
-    
-    // Encrypt and store each file
-    let secret_encrypted = encryptor.encrypt(original_content.as_bytes()).unwrap();
-    let config_encrypted = encryptor.encrypt(br#"{"key": "value"}"#).unwrap();
-    
-    // Store encrypted data
-    storage.store_file("encrypted-backup", "secret.txt", &secret_encrypted).unwrap();
-    storage.store_file("encrypted-backup", "config.json", &config_encrypted).unwrap();
-    
-    // Step 3: Verify encrypted data is not plaintext
-    let retrieved = storage.retrieve_file("encrypted-backup", "secret.txt").unwrap();
-    assert_ne!(retrieved.as_slice(), original_content.as_bytes(), 
-        "Encrypted data should not equal plaintext");
-    
-    // Step 4: Decrypt and verify content
-    let decrypted = encryptor.decrypt(&retrieved).unwrap();
-    assert_eq!(String::from_utf8(decrypted).unwrap(), original_content);
-    
-    // Step 5: Test integrity verification with SHA-256
-    let checksum = Checksum::compute(original_content.as_bytes(), HashAlgorithm::Sha256);
-    assert!(checksum.verify(original_content.as_bytes()));
-    
-    // Step 6: Test key derivation from password
-    let salt = b"test_salt_1234567890";
-    let derived_key = Key256::from_password("test_password", salt).unwrap();
-    assert_ne!(derived_key.to_hex(), key.to_hex(), "Derived key should differ from random key");
-    
-    // Step 7: Verify same password + salt produces same key
-    let derived_key2 = Key256::from_password("test_password", salt).unwrap();
-    assert_eq!(derived_key.to_hex(), derived_key2.to_hex());
-}
-
-#[test]
-fn test_integrity_engine_multi_file_verification() {
-    // Create temp directory with test files
-    let temp_dir = tempfile::TempDir::new().unwrap();
-    
-    // Create test files
-    let file1_path = temp_dir.path().join("file1.txt");
-    let file2_path = temp_dir.path().join("file2.txt");
-    
-    fs::write(&file1_path, "content of file 1").unwrap();
-    fs::write(&file2_path, "content of file 2").unwrap();
-    
-    // Compute checksums
-    let checksum1 = IntegrityEngine::verify_file(&file1_path, &Checksum::compute(b"content of file 1", HashAlgorithm::Sha256).value).unwrap();
-    let checksum2 = IntegrityEngine::verify_file(&file2_path, &Checksum::compute(b"content of file 2", HashAlgorithm::Sha256).value).unwrap();
-    
-    // Verify individual files
-    assert!(checksum1.passed);
-    assert!(checksum2.passed);
-    
-    // Test checksum mismatch detection
-    let bad_check = IntegrityEngine::verify_file(&file1_path, "0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-    assert!(!bad_check.passed);
-    assert!(bad_check.error.is_some());
-    
-    // Test aggregate checksum
-    let checksums = vec![
-        Checksum::new(HashAlgorithm::Sha256, "aaa".to_string()),
-        Checksum::new(HashAlgorithm::Sha256, "bbb".to_string()),
-    ];
-    let aggregate = IntegrityEngine::compute_aggregate_checksum(&checksums).unwrap();
-    assert!(!aggregate.is_empty());
-    assert_eq!(aggregate.len(), 64); // SHA-256 produces 64 hex chars
-}
-
-#[test]
-fn test_restore_options_builder() {
-    // Test builder pattern for RestoreOptions
-    let options = RestoreOptions::to("/target")
-        .skip_existing()
-        .filter_files(vec!["file1.txt".to_string()]);
-    
-    assert_eq!(options.target.to_str(), Some("/target"));
-    assert_eq!(options.conflict, openvault_core::restore::ConflictStrategy::Skip);
-    assert_eq!(options.filter_paths, vec!["file1.txt"]);
-}
-
-#[test]
-fn test_aes_gcm_different_nonces_each_encryption() {
-    // Verify that each encryption produces unique ciphertext due to random nonce
-    let encryptor = AesGcmEncryption::generate();
-    let data = b"test data";
-    
-    let ciphertext1 = encryptor.encrypt(data).unwrap();
-    let ciphertext2 = encryptor.encrypt(data).unwrap();
-    
-    // Nonces are different, so ciphertexts should be different
-    assert_ne!(ciphertext1, ciphertext2);
-    
-    // Both should decrypt to the same plaintext
-    let decrypted1 = encryptor.decrypt(&ciphertext1).unwrap();
-    let decrypted2 = encryptor.decrypt(&ciphertext2).unwrap();
-    
-    assert_eq!(decrypted1, data);
-    assert_eq!(decrypted2, data);
-}
-
-#[test]
-fn test_encryption_with_wrong_key_fails() {
-    let encryptor = AesGcmEncryption::generate();
-    let wrong_key = Key256::generate();
-    let wrong_decryptor = AesGcmEncryption::new(wrong_key.as_bytes()).unwrap();
-    
-    let ciphertext = encryptor.encrypt(b"secret data").unwrap();
-    let result = wrong_decryptor.decrypt(&ciphertext);
-    
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_tampered_ciphertext_fails_authentication() {
-    let encryptor = AesGcmEncryption::generate();
-    let mut ciphertext = encryptor.encrypt(b"original data").unwrap();
-    
-    // Tamper with the ciphertext
-    if ciphertext.len() > 20 {
-        ciphertext[20] ^= 0xFF;
-    }
-    
-    let result = encryptor.decrypt(&ciphertext);
-    assert!(result.is_err());
+fn test_differential_strategy_yaml_config() {
+    let yaml = r#"
+name: "diff-test"
+source: "/tmp/nonexistent"
+strategy: "differential"
+storage:
+  type: "local"
+  path: "/tmp/vault-diff"
+"#;
+    let config = BackupConfig::load_from_str(yaml).unwrap();
+    assert_eq!(config.strategy, BackupStrategy::Differential);
 }

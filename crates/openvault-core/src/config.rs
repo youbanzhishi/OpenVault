@@ -31,12 +31,27 @@ pub enum StorageConfig {
         /// Directory where backups are stored.
         path: PathBuf,
     },
-    /// S3-compatible storage (reserved for future phases).
+    /// S3-compatible storage.
     S3 {
         bucket: String,
         prefix: String,
         endpoint: Option<String>,
         region: Option<String>,
+        /// Access key ID for S3 authentication.
+        access_key_id: Option<String>,
+        /// Secret access key for S3 authentication.
+        secret_access_key: Option<String>,
+    },
+    /// Cloudflare R2 storage (S3-compatible with custom endpoint).
+    R2 {
+        bucket: String,
+        prefix: String,
+        /// R2 account ID used to construct endpoint.
+        account_id: String,
+        /// Access key ID for R2 authentication.
+        access_key_id: Option<String>,
+        /// Secret access key for R2 authentication.
+        secret_access_key: Option<String>,
     },
 }
 
@@ -108,6 +123,68 @@ storage:
 "#;
         let config = BackupConfig::load_from_str(yaml).unwrap();
         assert_eq!(config.strategy, BackupStrategy::Incremental);
+    }
+
+    #[test]
+    fn test_parse_differential_config() {
+        let yaml = r#"
+name: "differential-backup"
+source: "/tmp/data"
+strategy: "differential"
+storage:
+  type: "local"
+  path: "/tmp/vault-data"
+"#;
+        let config = BackupConfig::load_from_str(yaml).unwrap();
+        assert_eq!(config.strategy, BackupStrategy::Differential);
+    }
+
+    #[test]
+    fn test_parse_s3_config() {
+        let yaml = r#"
+name: "s3-backup"
+source: "/tmp/data"
+strategy: "full"
+storage:
+  type: "s3"
+  bucket: "my-backups"
+  prefix: "vault/"
+  endpoint: "https://s3.amazonaws.com"
+  region: "us-east-1"
+  access_key_id: "AKIAIOSFODNN7EXAMPLE"
+  secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+"#;
+        let config = BackupConfig::load_from_str(yaml).unwrap();
+        assert_eq!(config.name, "s3-backup");
+        match config.storage {
+            StorageConfig::S3 { bucket, region, .. } => {
+                assert_eq!(bucket, "my-backups");
+                assert_eq!(region, Some("us-east-1".to_string()));
+            }
+            _ => panic!("Expected S3 storage config"),
+        }
+    }
+
+    #[test]
+    fn test_parse_r2_config() {
+        let yaml = r#"
+name: "r2-backup"
+source: "/tmp/data"
+strategy: "full"
+storage:
+  type: "r2"
+  bucket: "my-r2-bucket"
+  prefix: "backups/"
+  account_id: "abc123def456"
+"#;
+        let config = BackupConfig::load_from_str(yaml).unwrap();
+        match config.storage {
+            StorageConfig::R2 { bucket, account_id, .. } => {
+                assert_eq!(bucket, "my-r2-bucket");
+                assert_eq!(account_id, "abc123def456");
+            }
+            _ => panic!("Expected R2 storage config"),
+        }
     }
 
     #[test]

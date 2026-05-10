@@ -6,7 +6,7 @@ use crate::snapshot::Snapshot;
 ///
 /// This is the central abstraction of OpenVault. A BackupEngine knows how to
 /// execute a backup given a config and a storage backend. Concrete strategies
-/// (Full, Incremental, etc.) implement this trait; the core never dispatches
+/// (Full, Incremental, Differential) implement this trait; the core never dispatches
 /// on "local" vs "remote" — that is the storage layer's job.
 pub trait BackupEngine: Send + Sync {
     /// Execute a backup and return the resulting snapshot.
@@ -20,9 +20,10 @@ pub trait BackupEngine: Send + Sync {
 pub fn engine_for_strategy(
     strategy: &crate::snapshot::BackupStrategy,
 ) -> Box<dyn BackupEngine> {
-    use crate::strategy::{FullBackup, IncrementalBackup};
+    use crate::strategy::{DifferentialBackup, FullBackup, IncrementalBackup};
     match strategy {
         crate::snapshot::BackupStrategy::Full => Box::new(FullBackup),
         crate::snapshot::BackupStrategy::Incremental => Box::new(IncrementalBackup),
+        crate::snapshot::BackupStrategy::Differential => Box::new(DifferentialBackup),
     }
 }

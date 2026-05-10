@@ -36,6 +36,15 @@ pub enum VaultError {
 
     #[error("Integrity verification failed: {0}")]
     Integrity(String),
+
+    #[error("Unsupported backend: {0}")]
+    UnsupportedBackend(String),
+
+    #[error("Policy violation: {0}")]
+    PolicyViolation(String),
+
+    #[error("Self-healing failed: {0}")]
+    SelfHealingFailed(String),
 }
 
 pub type VaultResult<T> = Result<T, VaultError>;

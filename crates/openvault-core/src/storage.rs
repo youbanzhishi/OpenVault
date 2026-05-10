@@ -7,7 +7,7 @@ use crate::snapshot::Snapshot;
 /// with OpenLink's `open-storage::StorageBackend` interface but adds
 /// backup-specific operations (snapshot persistence, metadata queries).
 ///
-/// Implementations: `LocalVaultStorage`, future `S3VaultStorage`, etc.
+/// Implementations: `LocalVaultStorage`, `S3VaultStorage`, `R2VaultStorage`, etc.
 pub trait VaultStorage: Send + Sync {
     /// Store a file's raw data under the given snapshot ID and relative path.
     fn store_file(&self, snapshot_id: &str, rel_path: &str, data: &[u8]) -> VaultResult<()>;
@@ -30,7 +30,10 @@ pub trait VaultStorage: Send + Sync {
     /// Find the latest snapshot for a given source path.
     fn latest_snapshot(&self, source: String) -> VaultResult<Option<Snapshot>>;
 
-    /// Human-readable backend name (e.g., "local", "s3").
+    /// Find the latest **full** snapshot for a given source path.
+    fn latest_full_snapshot(&self, source: String) -> VaultResult<Option<Snapshot>>;
+
+    /// Human-readable backend name (e.g., "local", "s3", "r2").
     fn backend_name(&self) -> &str;
 
     /// Restore all files from a snapshot to the given target directory.

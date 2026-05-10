@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use openvault_core::error::{VaultError, VaultResult};
-use openvault_core::snapshot::Snapshot;
+use openvault_core::snapshot::{BackupStrategy, Snapshot};
 use openvault_core::storage::VaultStorage;
 
 /// Local filesystem implementation of `VaultStorage`.
@@ -160,6 +160,14 @@ impl VaultStorage for LocalVaultStorage {
             .max_by_key(|s| s.created_at))
     }
 
+    fn latest_full_snapshot(&self, source: String) -> VaultResult<Option<Snapshot>> {
+        let snapshots = self.list_snapshots()?;
+        Ok(snapshots
+            .into_iter()
+            .filter(|s| s.source == source && s.strategy == BackupStrategy::Full)
+            .max_by_key(|s| s.created_at))
+    }
+
     fn backend_name(&self) -> &str {
         "local"
     }
@@ -312,5 +320,21 @@ mod tests {
             std::fs::read_to_string(target.path().join("a.txt")).unwrap(),
             "aaa"
         );
+    }
+
+    #[test]
+    fn test_latest_full_snapshot() {
+        let dir = TempDir::new().unwrap();
+        let storage = LocalVaultStorage::new(dir.path()).unwrap();
+
+        let full_snap = make_snapshot("snap-full1", BackupStrategy::Full, vec![]);
+        let inc_snap = make_snapshot("snap-inc1", BackupStrategy::Incremental, vec![]);
+
+        storage.store_snapshot(&full_snap).unwrap();
+        storage.store_snapshot(&inc_snap).unwrap();
+
+        let result = storage.latest_full_snapshot("/tmp/source".to_string()).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, "snap-full1");
     }
 }

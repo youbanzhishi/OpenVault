@@ -31,7 +31,7 @@ pub struct Snapshot {
     pub storage_backend: String,
     /// Files contained in this snapshot.
     pub entries: Vec<FileEntry>,
-    /// Parent snapshot ID (None for full backups, Some for incremental).
+    /// Parent snapshot ID (None for full backups, Some for incremental/differential).
     pub parent_id: Option<SnapshotId>,
     /// Total size of all files in bytes.
     pub total_size: u64,
@@ -43,6 +43,7 @@ pub struct Snapshot {
 pub enum BackupStrategy {
     Full,
     Incremental,
+    Differential,
 }
 
 /// Counter for generating unique snapshot IDs within the same second.

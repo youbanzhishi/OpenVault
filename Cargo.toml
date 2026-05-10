@@ -9,6 +9,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+indexmap = "<2.14"
 tempfile = "3"
 
 # Common dependencies
