@@ -1,103 +1,31 @@
-# ============================================================================
-# OpenVault CI Pipeline
-# ============================================================================
-# Runs on every push and PR to main:
-#   - cargo check (core, server, intel)
-#   - cargo test  (core only — other crates may need external services)
-#   - cargo clippy
-#   - cargo fmt --check
-# ============================================================================
 name: CI
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 env:
   CARGO_TERM_COLOR: always
-  CARGO_BUILD_JOBS: 2
-
+  RUST_BACKTRACE: 1
 jobs:
   check:
-    name: Check
+    name: Check & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: cargo check (openvault-core)
-        run: cargo check -p openvault-core
-
-      - name: cargo check (openvault-server)
-        run: cargo check -p openvault-server
-
-      - name: cargo check (openvault-intel)
-        run: cargo check -p openvault-intel
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    needs: check
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: cargo test (openvault-core)
-        run: cargo test -p openvault-core
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    needs: check
-    steps:
-      - uses: actions/checkout@v4
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-
-      - name: cargo clippy
-        run: cargo clippy -p openvault-core -p openvault-server -p openvault-intel -- -D warnings
+          cache-on-failure: true
+      - name: Cargo check
+        run: cargo check --workspace
+      - name: Run tests
+        run: cargo test --workspace
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+      - name: Format check
+        run: cargo fmt --check
