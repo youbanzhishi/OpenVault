@@ -9,17 +9,12 @@ use std::io::{Read, Write};
 use crate::error::{VaultError, VaultResult};
 
 /// Supported hash algorithms for integrity verification.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HashAlgorithm {
     /// SHA-256 - cryptographic security, widely compatible.
+    #[default]
     Sha256,
-}
-
-impl Default for HashAlgorithm {
-    fn default() -> Self {
-        HashAlgorithm::Sha256
-    }
 }
 
 impl HashAlgorithm {

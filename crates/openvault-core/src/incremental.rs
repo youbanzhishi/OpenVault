@@ -159,8 +159,8 @@ impl Chunker {
 
         // Initialize rolling hash with the first window
         let init_end = std::cmp::min(scan_start + self.window_size, scan_end);
-        for i in scan_start..init_end {
-            hash = hash.wrapping_shl(1).wrapping_add(data[i] as u32);
+        for &byte in data.iter().take(init_end).skip(scan_start) {
+            hash = hash.wrapping_shl(1).wrapping_add(byte as u32);
         }
 
         // Check the initial position

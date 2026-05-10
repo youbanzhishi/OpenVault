@@ -410,8 +410,7 @@ impl DashboardApi {
     pub async fn create_policy(&self, _request: DashboardCreatePolicyRequest) -> String {
         let mut count = self.inner.policies_count.write().await;
         *count += 1;
-        let policy_id = Uuid::new_v4().to_string();
-        policy_id
+        Uuid::new_v4().to_string()
     }
 
     // ----- GET /api/dashboard/stats -----

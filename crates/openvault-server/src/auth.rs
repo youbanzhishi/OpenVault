@@ -54,6 +54,7 @@ impl Claims {
 /// Authentication manager
 pub struct AuthManager {
     secret: String,
+    #[allow(dead_code)]
     issuer: String,
 }
 
@@ -95,8 +96,8 @@ impl AuthManager {
 
     /// Extract token from Authorization header
     pub fn extract_token(auth_header: &str) -> ServerResult<&str> {
-        if auth_header.starts_with("Bearer ") {
-            Ok(&auth_header[7..])
+        if let Some(stripped) = auth_header.strip_prefix("Bearer ") {
+            Ok(stripped)
         } else {
             Err(ServerError::Unauthorized(
                 "Invalid Authorization header format".to_string(),

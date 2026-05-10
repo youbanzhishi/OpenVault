@@ -111,10 +111,11 @@ impl Default for StorageBackend {
 }
 
 /// Supported storage types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageType {
     /// Local filesystem storage
+    #[default]
     Local,
     /// S3-compatible object storage
     S3,
@@ -122,12 +123,6 @@ pub enum StorageType {
     OpenLink,
     /// Distributed storage via OpenLink
     Distributed,
-}
-
-impl Default for StorageType {
-    fn default() -> Self {
-        StorageType::Local
-    }
 }
 
 impl std::fmt::Display for StorageType {

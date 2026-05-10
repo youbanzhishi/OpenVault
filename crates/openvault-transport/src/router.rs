@@ -149,7 +149,7 @@ impl TransferRouter {
                 NetworkQuality::Excellent => 1000 * 1024 * 1024, // 1 GB/s
                 NetworkQuality::Good => 100 * 1024 * 1024,       // 100 MB/s
                 NetworkQuality::Fair => 10 * 1024 * 1024,       // 10 MB/s
-                NetworkQuality::Poor => 1 * 1024 * 1024,         // 1 MB/s
+                NetworkQuality::Poor => 1024 * 1024,           // 1 MB/s
             };
             (latency, bandwidth, 0.9)
         } else {
@@ -206,11 +206,12 @@ impl TransferRouter {
 }
 
 /// Data access frequency hint
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccessFrequency {
     /// Data accessed very frequently (multiple times per hour)
     Hot,
     /// Data accessed regularly (daily)
+    #[default]
     Warm,
     /// Data accessed occasionally (monthly)
     Cold,
@@ -218,29 +219,18 @@ pub enum AccessFrequency {
     Archive,
 }
 
-impl Default for AccessFrequency {
-    fn default() -> Self {
-        AccessFrequency::Warm
-    }
-}
-
 /// Required durability level
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DurabilityLevel {
     /// Maximum durability (multiple redundant copies)
     Critical,
     /// High durability (geographically distributed)
     High,
     /// Standard durability (single redundant copy)
+    #[default]
     Standard,
     /// Low durability (single copy)
     Low,
-}
-
-impl Default for DurabilityLevel {
-    fn default() -> Self {
-        DurabilityLevel::Standard
-    }
 }
 
 impl std::fmt::Display for DurabilityLevel {
@@ -255,20 +245,15 @@ impl std::fmt::Display for DurabilityLevel {
 }
 
 /// Network quality assessment
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NetworkQuality {
     /// Excellent network conditions
     Excellent,
     /// Good network conditions
+    #[default]
     Good,
     /// Fair network conditions
     Fair,
     /// Poor network conditions
     Poor,
-}
-
-impl Default for NetworkQuality {
-    fn default() -> Self {
-        NetworkQuality::Good
-    }
 }

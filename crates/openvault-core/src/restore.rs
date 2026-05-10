@@ -13,22 +13,17 @@ use crate::snapshot::{BackupEntry, FileEntry, Snapshot};
 use crate::storage::VaultStorage;
 
 /// Conflict resolution strategy when target file exists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ConflictStrategy {
     /// Skip restoring files that already exist.
     Skip,
     /// Overwrite existing files.
+    #[default]
     Overwrite,
     /// Rename restored file (append .restored suffix).
     Rename,
     /// Fail if any file conflicts.
     Fail,
-}
-
-impl Default for ConflictStrategy {
-    fn default() -> Self {
-        ConflictStrategy::Overwrite
-    }
 }
 
 /// Options for restore operations.
@@ -276,11 +271,11 @@ impl RestoreEngine {
 
         for entry in &snapshot.entries {
             // Apply filter if specified
-            if !options.filter_paths.is_empty() {
-                if !options.filter_paths.contains(&entry.path) {
-                    report.files_skipped += 1;
-                    continue;
-                }
+            if !options.filter_paths.is_empty()
+                && !options.filter_paths.contains(&entry.path)
+            {
+                report.files_skipped += 1;
+                continue;
             }
 
             match self.restore_file(snapshot, entry, &options, &mut report).await {
@@ -330,8 +325,8 @@ impl RestoreEngine {
         let mut data = self.storage.retrieve_file(&snapshot.id, &entry.path)?;
 
         // Decrypt if necessary
-        if self.crypto.is_some() {
-            data = self.crypto.as_ref().unwrap().decrypt(&data).map_err(|e| {
+        if let Some(crypto) = &self.crypto {
+            data = crypto.decrypt(&data).map_err(|e| {
                 VaultError::RestoreFailed(format!("Decryption failed for {}: {}", entry.path, e))
             })?;
         }
@@ -383,10 +378,10 @@ impl RestoreEngine {
 
         match strategy {
             ConflictStrategy::Skip => {
-                return Err(VaultError::RestoreFailed(format!(
+                Err(VaultError::RestoreFailed(format!(
                     "File already exists (skip): {}",
                     target_path.display()
-                )));
+                )))
             }
             ConflictStrategy::Overwrite => Ok(target_path.to_path_buf()),
             ConflictStrategy::Rename => {
@@ -408,10 +403,10 @@ impl RestoreEngine {
                 }
             }
             ConflictStrategy::Fail => {
-                return Err(VaultError::RestoreFailed(format!(
+                Err(VaultError::RestoreFailed(format!(
                     "File already exists (fail): {}",
                     target_path.display()
-                )));
+                )))
             }
         }
     }
@@ -436,7 +431,7 @@ impl RestoreEngine {
         }
 
         // Sort by creation time, newest first
-        versions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        versions.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         Ok(versions)
     }
 
@@ -504,8 +499,8 @@ impl RestoreEngine {
         let data = self.storage.retrieve_file(&snapshot.id, &entry.path)?;
         
         // Decrypt if necessary
-        let data = if self.crypto.is_some() {
-            self.crypto.as_ref().unwrap().decrypt(&data)?
+        let data = if let Some(crypto) = &self.crypto {
+            crypto.decrypt(&data)?
         } else {
             data
         };
@@ -950,7 +945,7 @@ impl NaturalLanguageQuery {
                 .collect();
             let month: u32 = month_str.parse().ok()?;
 
-            if month >= 1 && month <= 12 && year >= 2000 && year <= 2100 {
+            if (1..=12).contains(&month) && (2000..=2100).contains(&year) {
                 if let Some(start) = chrono::NaiveDate::from_ymd_opt(year, month, 1) {
                     let start_dt = chrono::DateTime::from_naive_utc_and_offset(start.and_hms_opt(0, 0, 0)?, chrono::Utc);
                     // End of month

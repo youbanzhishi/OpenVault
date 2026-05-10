@@ -163,6 +163,7 @@ impl VaultCompressor for ZstdCompressor {
 #[derive(Debug, Clone)]
 pub struct Lz4Compressor {
     /// Whether to use LZ4 HC (higher compression, slower).
+    #[allow(dead_code)]
     high_compression: bool,
 }
 
@@ -191,11 +192,7 @@ impl Default for Lz4Compressor {
 
 impl VaultCompressor for Lz4Compressor {
     fn compress(&self, data: &[u8]) -> CompressResult<Vec<u8>> {
-        let compressed = if self.high_compression {
-            lz4_flex::compress_prepend_size(data)
-        } else {
-            lz4_flex::compress_prepend_size(data)
-        };
+        let compressed = lz4_flex::compress_prepend_size(data);
         // Prepend LZ4 magic bytes for format detection
         let mut result = Vec::with_capacity(4 + compressed.len());
         result.extend_from_slice(LZ4_MAGIC);

@@ -7,19 +7,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Risk level for an anomaly assessment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RiskLevel {
+    #[default]
     Low = 0,
     Medium = 1,
     High = 2,
     Critical = 3,
-}
-
-impl Default for RiskLevel {
-    fn default() -> Self {
-        RiskLevel::Low
-    }
 }
 
 impl std::fmt::Display for RiskLevel {
@@ -194,7 +189,7 @@ impl AnomalyPredictor {
         let (older, newer) = if records.len() >= 2 {
             (&records[..mid], &records[mid..])
         } else {
-            (&records[..0], &records[..])
+            (&records[..0], records)
         };
 
         // Duration trend

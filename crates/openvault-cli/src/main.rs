@@ -1004,7 +1004,7 @@ async fn main() -> Result<()> {
             if result.items.is_empty() {
                 println!("No audit entries found.");
             } else {
-                println!("{:<6} {:<25} {:<15} {:<20} {:<10} {}", "Seq", "Timestamp", "User", "Operation", "Result", "Target");
+                println!("{:<6} {:<25} {:<15} {:<20} {:<10} Target", "Seq", "Timestamp", "User", "Operation", "Result");
                 println!("{}", "-".repeat(100));
                 for e in &result.items {
                     println!("{:<6} {:<25} {:<15} {:<20} {:<10} {}",
@@ -1022,7 +1022,7 @@ async fn main() -> Result<()> {
 
         Commands::Audit(AuditCommands::Verify) => {
             let mut log = AuditLog::new(RotationConfig::default());
-            let mut meta = std::collections::HashMap::new();
+            let meta = std::collections::HashMap::new();
             log.append("system", AuditOperation::BackupStarted, "test", AuditResult::Success, meta).unwrap();
             match log.verify_chain() {
                 Ok(_) => println!("✅ Audit chain integrity verified."),
@@ -1067,7 +1067,7 @@ async fn main() -> Result<()> {
             let report = checker.check(&path, &region, retention_days);
             println!("{}", report.summary());
             for f in &report.findings {
-                println!("  - [{}] {}: {}", f.severity.to_string(), f.rule_name, f.message);
+                println!("  - [{}] {}: {}", f.severity, f.rule_name, f.message);
             }
         }
 
@@ -1113,7 +1113,7 @@ async fn main() -> Result<()> {
             } else {
                 for n in history.iter().take(count) {
                     let read_marker = if n.read { "✓" } else { "●" };
-                    println!("{} [{}] {} — {}", read_marker, n.severity.to_string(), n.title, n.timestamp.format("%Y-%m-%d %H:%M"));
+                    println!("{} [{}] {} — {}", read_marker, n.severity, n.title, n.timestamp.format("%Y-%m-%d %H:%M"));
                 }
             }
         }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Backup priority level assigned to classified files.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackupPriority {
     /// Do not back up (temp files, caches, etc.)
@@ -17,15 +17,10 @@ pub enum BackupPriority {
     /// Low priority — back up when convenient.
     Low = 1,
     /// Medium priority — normal scheduled backup.
+    #[default]
     Medium = 2,
     /// High priority — real-time or near-real-time backup.
     High = 3,
-}
-
-impl Default for BackupPriority {
-    fn default() -> Self {
-        BackupPriority::Medium
-    }
 }
 
 /// Semantic file category.

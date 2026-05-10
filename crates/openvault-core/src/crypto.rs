@@ -38,17 +38,12 @@ pub trait EncryptionProvider: Send + Sync {
 }
 
 /// Supported encryption algorithms.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EncryptionAlgorithm {
     /// AES-256-GCM (default, recommended for most use cases).
+    #[default]
     Aes256Gcm,
-}
-
-impl Default for EncryptionAlgorithm {
-    fn default() -> Self {
-        EncryptionAlgorithm::Aes256Gcm
-    }
 }
 
 /// 256-bit key storage.
@@ -122,7 +117,7 @@ impl Key256 {
 
     /// Export as base64 string.
     pub fn to_base64(&self) -> String {
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &self.0)
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, self.0)
     }
 
     /// Get raw key bytes.
@@ -287,7 +282,7 @@ impl<W: std::io::Write> std::io::Write for EncryptedWriter<W> {
         while self.buffer.len() >= 65536 {
             let chunk = self.buffer.drain(..65536).collect::<Vec<_>>();
             let encrypted = self.encryptor.encrypt(&chunk)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
             self.writer.write_all(&encrypted)?;
             self.processed += chunk.len() as u64;
         }
@@ -333,7 +328,7 @@ impl<R: std::io::Read> std::io::Read for DecryptedReader<R> {
             
             chunk.truncate(n);
             let decrypted = self.decryptor.decrypt(&chunk)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
             self.buffer = decrypted;
         }
         
@@ -547,7 +542,7 @@ impl KeyDerivation {
             iterations,
             &mut key,
         );
-        Ok(Key256::from_bytes(&key)?)
+        Key256::from_bytes(&key)
     }
 
     /// Derive a key with default iteration count.

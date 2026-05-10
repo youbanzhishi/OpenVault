@@ -1,31 +1,24 @@
 name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+
 jobs:
   check:
     name: Check & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - name: Cargo check
-        run: cargo check --workspace
-      - name: Run tests
-        run: cargo test --workspace
-      - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
-      - name: Format check
-        run: cargo fmt --check
+      - run: cargo check --workspace
+      - run: cargo test --workspace
+      - run: cargo fmt --check

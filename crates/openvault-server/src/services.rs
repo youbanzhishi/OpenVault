@@ -206,8 +206,7 @@ impl BackupService {
 
     /// Create a new backup status entry
     pub async fn create_backup(&self, device_id: &str) -> BackupStatus {
-        let mut backup = BackupStatus::default();
-        backup.device_id = device_id.to_string();
+        let backup = BackupStatus { device_id: device_id.to_string(), ..Default::default() };
         let mut backups = self.backups.write().await;
         backups.insert(backup.backup_id.clone(), backup.clone());
         backup
@@ -265,7 +264,7 @@ impl BackupService {
     pub async fn list_snapshots(&self) -> Vec<openvault_core::snapshot::Snapshot> {
         let snapshots = self.snapshots.read().await;
         let mut list: Vec<_> = snapshots.values().cloned().collect();
-        list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        list.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         list
     }
 
@@ -476,6 +475,7 @@ impl Default for AuditService {
 /// Tenant service — wraps TenantManager with async locking.
 pub struct TenantSvc {
     manager: Arc<RwLock<TenantManager>>,
+    #[allow(dead_code)]
     access: Arc<RwLock<AccessControl>>,
 }
 

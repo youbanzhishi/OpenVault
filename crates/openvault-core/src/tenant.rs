@@ -17,7 +17,7 @@ use crate::error::{VaultError, VaultResult};
 // ============================================================================
 
 /// Storage quota for a tenant.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TenantQuota {
     /// Maximum total storage in bytes (0 = unlimited).
     pub max_storage_bytes: u64,
@@ -25,16 +25,6 @@ pub struct TenantQuota {
     pub max_files: u64,
     /// Maximum number of backup copies/replicas (0 = unlimited).
     pub max_copies: u64,
-}
-
-impl Default for TenantQuota {
-    fn default() -> Self {
-        Self {
-            max_storage_bytes: 0,
-            max_files: 0,
-            max_copies: 0,
-        }
-    }
 }
 
 /// Current usage statistics for a tenant.

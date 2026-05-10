@@ -346,6 +346,7 @@ impl S3VaultStorage {
     }
 
     /// Check if an object exists in S3 using HEAD request.
+    #[allow(dead_code)]
     fn head_object(&self, key: &str) -> VaultResult<bool> {
         let url = self.object_url(key);
         let mut headers = Vec::new();

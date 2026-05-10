@@ -15,9 +15,10 @@ use uuid::Uuid;
 // ============================================================================
 
 /// Extended device type including robots and NAS.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceKind {
+    #[default]
     PC,
     NAS,
     Mobile,
@@ -26,26 +27,15 @@ pub enum DeviceKind {
     Cloud,
 }
 
-impl Default for DeviceKind {
-    fn default() -> Self {
-        DeviceKind::PC
-    }
-}
-
 /// Device online status.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceOnlineStatus {
     Online,
+    #[default]
     Offline,
     Busy,
     Error,
-}
-
-impl Default for DeviceOnlineStatus {
-    fn default() -> Self {
-        DeviceOnlineStatus::Offline
-    }
 }
 
 /// Detailed device profile for multi-device management.
