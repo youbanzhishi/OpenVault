@@ -89,7 +89,7 @@ impl Policy321 {
 }
 
 /// Health status of the 3-2-1 policy for a source.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PolicyHealth {
     /// Source path being evaluated.
     pub source: String,
