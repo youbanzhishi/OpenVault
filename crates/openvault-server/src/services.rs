@@ -3,6 +3,15 @@
 use crate::error::ServerResult;
 use crate::models::*;
 use chrono::Utc;
+use openvault_core::audit::{AuditLog, AuditOperation, AuditQuery, AuditResult, RotationConfig};
+use openvault_core::compliance::{
+    ComplianceChecker, ComplianceReport, ComplianceRule, DataClassification,
+    RetentionPolicy,
+};
+use openvault_core::notification::{
+    NotificationRule, NotificationSvc as CoreNotificationSvc, NotificationType, Severity,
+};
+use openvault_core::tenant::{AccessControl, TenantManager, TenantQuota};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -23,18 +32,13 @@ impl DeviceService {
     /// Register a new device
     pub async fn register(&self, registration: DeviceRegistration) -> ServerResult<Device> {
         let device = Device::new(registration);
-        
         let mut devices = self.devices.write().await;
-        
-        // Check if device already exists
         if devices.contains_key(&device.device_id) {
-            // Update existing device
             let existing = devices.get_mut(&device.device_id).unwrap();
             existing.last_seen = Utc::now();
             existing.status = DeviceStatus::Online;
             return Ok(existing.clone());
         }
-        
         devices.insert(device.device_id.clone(), device.clone());
         Ok(device)
     }
@@ -146,7 +150,6 @@ impl PolicyService {
         let policy = policies
             .get_mut(policy_id)
             .ok_or_else(|| crate::error::ServerError::NotFound(format!("Policy {} not found", policy_id)))?;
-        
         policy.name = updates.name;
         policy.enabled = updates.enabled;
         policy.strategy = updates.strategy;
@@ -158,7 +161,6 @@ impl PolicyService {
         policy.include_patterns = updates.include_patterns;
         policy.target_device_id = updates.target_device_id;
         policy.updated_at = Utc::now();
-        
         Ok(policy.clone())
     }
 
@@ -206,10 +208,8 @@ impl BackupService {
     pub async fn create_backup(&self, device_id: &str) -> BackupStatus {
         let mut backup = BackupStatus::default();
         backup.device_id = device_id.to_string();
-        
         let mut backups = self.backups.write().await;
         backups.insert(backup.backup_id.clone(), backup.clone());
-        
         backup
     }
 
@@ -228,12 +228,10 @@ impl BackupService {
         let backup = backups
             .get_mut(backup_id)
             .ok_or_else(|| crate::error::ServerError::NotFound(format!("Backup {} not found", backup_id)))?;
-        
         backup.status = status.clone();
         if matches!(status, BackupStatusType::Completed | BackupStatusType::Failed) {
             backup.completed_at = Some(Utc::now());
         }
-        
         Ok(())
     }
 
@@ -292,7 +290,7 @@ impl Default for BackupService {
     }
 }
 
-/// Notification service
+/// Notification service (webhook delivery)
 pub struct NotificationService {
     config: Arc<RwLock<NotificationConfig>>,
 }
@@ -327,27 +325,20 @@ impl NotificationService {
     /// Send a notification for an event
     pub async fn notify(&self, event: NotificationEvent, payload: WebhookPayload) -> ServerResult<()> {
         let config = self.config.read().await;
-        
         if !config.enabled {
             return Ok(());
         }
-
         if !config.events.contains(&event) {
             return Ok(());
         }
-
         if let Some(webhook_url) = &config.webhook_url {
             let client = reqwest::Client::new();
-            
             let mut request = client.post(webhook_url);
-            
             if let Some(secret) = &config.webhook_secret {
-                // Add HMAC signature
                 let body = serde_json::to_string(&payload)?;
                 let signature = compute_hmac(&body, secret);
                 request = request.header("X-Signature", format!("sha256={}", signature));
             }
-            
             request
                 .header("Content-Type", "application/json")
                 .json(&payload)
@@ -355,7 +346,6 @@ impl NotificationService {
                 .await
                 .map_err(|e| crate::error::ServerError::Internal(format!("Webhook request failed: {}", e)))?;
         }
-
         Ok(())
     }
 
@@ -419,4 +409,229 @@ fn compute_hmac(message: &str, secret: &str) -> String {
         .expect("HMAC can take key of any size");
     mac.update(message.as_bytes());
     hex::encode(mac.finalize().into_bytes())
+}
+
+// ============================================================================
+// Phase 8: Enterprise Services
+// ============================================================================
+
+/// Audit service — wraps AuditLog with async locking.
+pub struct AuditService {
+    log: Arc<RwLock<AuditLog>>,
+}
+
+impl AuditService {
+    pub fn new() -> Self {
+        Self {
+            log: Arc::new(RwLock::new(AuditLog::new(RotationConfig::default()))),
+        }
+    }
+
+    pub async fn append(
+        &self,
+        user_id: &str,
+        operation: AuditOperation,
+        target: &str,
+        result: AuditResult,
+        metadata: HashMap<String, String>,
+    ) -> ServerResult<()> {
+        let mut log = self.log.write().await;
+        log.append(user_id, operation, target, result, metadata)
+            .map_err(|e| crate::error::ServerError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn query(&self, q: &AuditQuery) -> (usize, u32, u32, Vec<crate::models::AuditEntryResponse>) {
+        let log = self.log.read().await;
+        let result = log.query(q);
+        let total = result.total;
+        let page = result.page;
+        let per_page = result.per_page;
+        let items = result.items.into_iter().map(|e| crate::models::AuditEntryResponse {
+            seq: e.seq,
+            timestamp: e.timestamp,
+            user_id: e.user_id.clone(),
+            operation: e.operation.to_string(),
+            target: e.target.clone(),
+            result: format!("{:?}", e.result),
+            metadata: e.metadata.clone(),
+            hash: e.hash.clone(),
+        }).collect();
+        (total, page, per_page, items)
+    }
+
+    pub async fn verify_chain(&self) -> ServerResult<bool> {
+        let log = self.log.read().await;
+        log.verify_chain()
+            .map_err(|e| crate::error::ServerError::Internal(e.to_string()))
+    }
+}
+
+impl Default for AuditService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Tenant service — wraps TenantManager with async locking.
+pub struct TenantSvc {
+    manager: Arc<RwLock<TenantManager>>,
+    access: Arc<RwLock<AccessControl>>,
+}
+
+impl TenantSvc {
+    pub fn new() -> Self {
+        Self {
+            manager: Arc::new(RwLock::new(TenantManager::new())),
+            access: Arc::new(RwLock::new(AccessControl::new())),
+        }
+    }
+
+    pub async fn create_tenant(&self, req: &CreateTenantRequest) -> ServerResult<openvault_core::tenant::Tenant> {
+        let mut mgr = self.manager.write().await;
+        let quota = TenantQuota {
+            max_storage_bytes: req.max_storage_bytes.unwrap_or(0),
+            max_files: req.max_files.unwrap_or(0),
+            max_copies: req.max_copies.unwrap_or(0),
+        };
+        mgr.create_tenant(&req.name, quota)
+            .map_err(|e| crate::error::ServerError::Internal(e.to_string()))
+    }
+
+    pub async fn get_usage(&self, tenant_id: &str) -> ServerResult<TenantUsageResponse> {
+        let mgr = self.manager.read().await;
+        let tenant = mgr.get_tenant(tenant_id)
+            .map_err(|e| crate::error::ServerError::NotFound(e.to_string()))?;
+        let usage = mgr.get_usage(tenant_id)
+            .map_err(|e| crate::error::ServerError::NotFound(e.to_string()))?;
+        let quota_result = tenant.check_quota(usage);
+        Ok(TenantUsageResponse {
+            tenant_id: tenant_id.to_string(),
+            name: tenant.name.clone(),
+            storage_bytes: usage.storage_bytes,
+            file_count: usage.file_count,
+            copy_count: usage.copy_count,
+            max_storage_bytes: tenant.quota.max_storage_bytes,
+            max_files: tenant.quota.max_files,
+            max_copies: tenant.quota.max_copies,
+            within_quota: quota_result.within_quota,
+        })
+    }
+
+    pub async fn list_tenants(&self) -> Vec<openvault_core::tenant::Tenant> {
+        let mgr = self.manager.read().await;
+        mgr.list_tenants().into_iter().cloned().collect()
+    }
+}
+
+impl Default for TenantSvc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Compliance service — wraps ComplianceChecker with async locking.
+pub struct ComplianceSvc {
+    checker: Arc<RwLock<ComplianceChecker>>,
+}
+
+impl ComplianceSvc {
+    pub fn new() -> Self {
+        let mut checker = ComplianceChecker::new();
+        // Add a default GDPR-like rule
+        checker.add_rule(ComplianceRule {
+            rule_id: "gdpr-default".into(),
+            name: "GDPR Default".into(),
+            description: "EU data residency requirement for restricted/confidential data".into(),
+            classification: DataClassification::Confidential,
+            retention: RetentionPolicy::KeepYears(7),
+            allowed_regions: vec!["EU".into()],
+            path_patterns: vec!["**/confidential/**".into(), "**/restricted/**".into()],
+            enabled: true,
+        });
+        Self {
+            checker: Arc::new(RwLock::new(checker)),
+        }
+    }
+
+    pub async fn check(&self, path: &str, region: &str, retention_days: u32) -> ComplianceReport {
+        let checker = self.checker.read().await;
+        checker.check(path, region, retention_days)
+    }
+
+    pub async fn add_rule(&self, rule: ComplianceRule) {
+        let mut checker = self.checker.write().await;
+        checker.add_rule(rule);
+    }
+}
+
+impl Default for ComplianceSvc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Notification service (Phase 8) — in-app notification service with dedup.
+pub struct InAppNotificationSvc {
+    svc: Arc<RwLock<CoreNotificationSvc>>,
+}
+
+impl InAppNotificationSvc {
+    pub fn new() -> Self {
+        Self {
+            svc: Arc::new(RwLock::new(CoreNotificationSvc::new())),
+        }
+    }
+
+    pub async fn send(
+        &self,
+        ntype: NotificationType,
+        severity: Severity,
+        title: &str,
+        message: &str,
+        tenant_id: Option<&str>,
+    ) -> ServerResult<()> {
+        let mut svc = self.svc.write().await;
+        svc.send(ntype, severity, title, message, tenant_id, HashMap::new())
+            .map_err(|e| crate::error::ServerError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn list(&self) -> NotificationListResponse {
+        let svc = self.svc.read().await;
+        let history = svc.history();
+        let total = history.len();
+        let unread_count = history.iter().filter(|n| !n.read).count();
+        let notifications = history.iter().map(|n| NotificationItemResponse {
+            id: n.id.clone(),
+            notification_type: n.notification_type.to_string(),
+            severity: format!("{:?}", n.severity),
+            title: n.title.clone(),
+            message: n.message.clone(),
+            timestamp: n.timestamp,
+            read: n.read,
+        }).collect();
+        NotificationListResponse {
+            notifications,
+            total,
+            unread: unread_count,
+        }
+    }
+
+    pub async fn set_rule(&self, rule: NotificationRule) {
+        let mut svc = self.svc.write().await;
+        svc.set_rule(rule);
+    }
+
+    pub async fn rules(&self) -> Vec<NotificationRule> {
+        let svc = self.svc.read().await;
+        let rules_slice: &[NotificationRule] = svc.rules();
+        rules_slice.to_vec()
+    }
+}
+
+impl Default for InAppNotificationSvc {
+    fn default() -> Self {
+        Self::new()
+    }
 }

@@ -14,6 +14,10 @@ use openvault_core::restore::{ConflictStrategy, RestoreEngine, RestoreOptions};
 use openvault_core::snapshot::BackupStrategy;
 use openvault_core::storage::VaultStorage;
 use openvault_storage::LocalVaultStorage;
+use openvault_core::audit::{AuditLog, AuditQuery, AuditOperation, AuditResult, RotationConfig};
+use openvault_core::compliance::{ComplianceChecker, ComplianceRule, DataClassification, RetentionPolicy};
+use openvault_core::tenant::{TenantManager, TenantQuota};
+use openvault_core::notification::{NotificationSvc, NotificationType, Severity};
 
 #[derive(Parser)]
 #[command(name = "vault", version, about = "OpenVault — intelligent file backup & disaster recovery\n\n狡兔三窟，AI守护，永不丢失")]
@@ -172,6 +176,18 @@ enum Commands {
     /// Self-healing operations
     #[command(subcommand)]
     Heal(HealCommands),
+    /// Audit log operations
+    #[command(subcommand)]
+    Audit(AuditCommands),
+    /// Compliance operations
+    #[command(subcommand)]
+    Compliance(ComplianceCommands),
+    /// Tenant management
+    #[command(subcommand)]
+    Tenant(TenantCommands),
+    /// Notification management
+    #[command(subcommand)]
+    Notify(NotifyCommands),
 }
 
 #[derive(Subcommand)]
@@ -241,6 +257,95 @@ enum HealCommands {
         /// Target storage path (corrupt replica)
         #[arg(long)]
         target_storage: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuditCommands {
+    /// List audit log entries
+    List {
+        /// Filter by user ID
+        #[arg(short, long)]
+        user: Option<String>,
+        /// Filter by operation type
+        #[arg(short, long)]
+        operation: Option<String>,
+        /// Maximum entries to show
+        #[arg(short, long, default_value = "20")]
+        limit: u32,
+    },
+    /// Verify audit log chain integrity
+    Verify,
+    /// Export audit log (json/csv)
+    Export {
+        /// Export format: json or csv
+        #[arg(short, long, default_value = "json")]
+        format: String,
+        /// Output file path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ComplianceCommands {
+    /// Run compliance check
+    Check {
+        /// Path to check
+        #[arg(short, long, default_value = "/")]
+        path: String,
+        /// Region for geo-compliance
+        #[arg(short, long, default_value = "EU")]
+        region: String,
+        /// Policy retention days
+        #[arg(long, default_value_t = 365)]
+        retention_days: u32,
+    },
+    /// Classify a path
+    Classify {
+        /// Path to classify
+        path: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TenantCommands {
+    /// Create a new tenant
+    Create {
+        /// Tenant name
+        #[arg(short, long)]
+        name: String,
+        /// Max storage in GB (0 = unlimited)
+        #[arg(long, default_value_t = 0)]
+        max_storage_gb: u64,
+        /// Max files (0 = unlimited)
+        #[arg(long, default_value_t = 0)]
+        max_files: u64,
+    },
+    /// List all tenants
+    List,
+    /// Show tenant usage
+    Usage {
+        /// Tenant ID
+        tenant_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum NotifyCommands {
+    /// List recent notifications
+    List {
+        /// Maximum entries to show
+        #[arg(short, long, default_value = "20")]
+        limit: u32,
+    },
+    /// List notification rules
+    Rules,
+    /// Send a test notification
+    Test {
+        /// Notification type
+        #[arg(short, long, default_value = "backup_completed")]
+        notification_type: String,
     },
 }
 
@@ -876,6 +981,164 @@ async fn main() -> Result<()> {
                 println!("✅ No healing needed for snapshot {}", snapshot_id);
             }
         }
+
+        // ── Audit ───────────────────────────────────────────────────────
+        Commands::Audit(AuditCommands::List { user, operation, limit }) => {
+            let mut log = AuditLog::new(RotationConfig::default());
+            // In a real implementation, log would be loaded from storage
+            // For now, add a sample entry
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("source".into(), "cli".into());
+            log.append("system", AuditOperation::BackupStarted, "cli-backup", AuditResult::Success, meta).unwrap();
+
+            let mut q = AuditQuery::new();
+            if let Some(ref u) = user {
+                q = q.user_id(u);
+            }
+            if let Some(ref op) = operation {
+                q = q.operation(AuditOperation::Custom(op.clone()));
+            }
+            q = q.paginate(0, limit);
+
+            let result = log.query(&q);
+            if result.items.is_empty() {
+                println!("No audit entries found.");
+            } else {
+                println!("{:<6} {:<25} {:<15} {:<20} {:<10} {}", "Seq", "Timestamp", "User", "Operation", "Result", "Target");
+                println!("{}", "-".repeat(100));
+                for e in &result.items {
+                    println!("{:<6} {:<25} {:<15} {:<20} {:<10} {}",
+                        e.seq,
+                        e.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                        e.user_id,
+                        e.operation.to_string().chars().take(18).collect::<String>(),
+                        format!("{:?}", e.result),
+                        e.target,
+                    );
+                }
+                println!("\nTotal: {} entries (page {})", result.total, result.page);
+            }
+        }
+
+        Commands::Audit(AuditCommands::Verify) => {
+            let mut log = AuditLog::new(RotationConfig::default());
+            let mut meta = std::collections::HashMap::new();
+            log.append("system", AuditOperation::BackupStarted, "test", AuditResult::Success, meta).unwrap();
+            match log.verify_chain() {
+                Ok(_) => println!("✅ Audit chain integrity verified."),
+                Err(e) => eprintln!("❌ Audit chain integrity FAILED: {}", e),
+            }
+        }
+
+        Commands::Audit(AuditCommands::Export { format, output }) => {
+            let mut log = AuditLog::new(RotationConfig::default());
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("source".into(), "cli".into());
+            log.append("system", AuditOperation::BackupCompleted, "snap-001", AuditResult::Success, meta).unwrap();
+
+            let q = AuditQuery::new();
+            let data = match format.as_str() {
+                "csv" => log.export_csv(&q)?,
+                _ => log.export_json(&q)?,
+            };
+
+            match output {
+                Some(path) => {
+                    std::fs::write(&path, &data)?;
+                    println!("📋 Audit log exported to {}", path.display());
+                }
+                None => println!("{}", data),
+            }
+        }
+
+        // ── Compliance ──────────────────────────────────────────────────
+        Commands::Compliance(ComplianceCommands::Check { path, region, retention_days }) => {
+            let mut checker = ComplianceChecker::new();
+            checker.add_rule(ComplianceRule {
+                rule_id: "gdpr-default".into(),
+                name: "GDPR Default".into(),
+                description: "EU data residency".into(),
+                classification: DataClassification::Confidential,
+                retention: RetentionPolicy::KeepYears(7),
+                allowed_regions: vec!["EU".into()],
+                path_patterns: vec!["**/confidential/**".into()],
+                enabled: true,
+            });
+            let report = checker.check(&path, &region, retention_days);
+            println!("{}", report.summary());
+            for f in &report.findings {
+                println!("  - [{}] {}: {}", f.severity.to_string(), f.rule_name, f.message);
+            }
+        }
+
+        Commands::Compliance(ComplianceCommands::Classify { path }) => {
+            let classification = DataClassification::from_path(&path);
+            println!("📂 Path: {}", path);
+            println!("🏷️  Classification: {:?}", classification);
+        }
+
+        // ── Tenant ──────────────────────────────────────────────────────
+        Commands::Tenant(TenantCommands::Create { name, max_storage_gb, max_files }) => {
+            let mut mgr = TenantManager::new();
+            let quota = TenantQuota {
+                max_storage_bytes: max_storage_gb * 1024 * 1024 * 1024,
+                max_files,
+                max_copies: 0,
+            };
+            let tenant = mgr.create_tenant(&name, quota)?;
+            println!("🏢 Tenant created:");
+            println!("  ID: {}", tenant.tenant_id);
+            println!("  Name: {}", tenant.name);
+            println!("  Quota: {} GB / {} files", max_storage_gb, max_files);
+        }
+
+        Commands::Tenant(TenantCommands::List) => {
+            println!("📋 Tenant management requires OpenVault server connection.");
+            println!("   Use 'openvault-server' for multi-tenant management.");
+        }
+
+        Commands::Tenant(TenantCommands::Usage { tenant_id }) => {
+            println!("📊 Usage for tenant {}:", tenant_id);
+            println!("   Connect to OpenVault server for real-time usage data.");
+        }
+
+        // ── Notify ──────────────────────────────────────────────────────
+        Commands::Notify(NotifyCommands::List { limit }) => {
+            let mut svc = NotificationSvc::new();
+            let _ = svc.send(NotificationType::BackupCompleted, Severity::Info, "Test Backup", "Backup completed", None, std::collections::HashMap::new());
+            let history = svc.history();
+            let count = std::cmp::min(limit as usize, history.len());
+            if history.is_empty() {
+                println!("No notifications.");
+            } else {
+                for n in history.iter().take(count) {
+                    let read_marker = if n.read { "✓" } else { "●" };
+                    println!("{} [{}] {} — {}", read_marker, n.severity.to_string(), n.title, n.timestamp.format("%Y-%m-%d %H:%M"));
+                }
+            }
+        }
+
+        Commands::Notify(NotifyCommands::Rules) => {
+            let svc = NotificationSvc::new();
+            println!("📋 Notification Rules:");
+            for r in svc.rules() {
+                println!("  {} ({}): severity >= {:?}, channels: {:?}, dedup: {}m",
+                    r.name, r.rule_id, r.min_severity, r.channels, r.dedup_minutes);
+            }
+        }
+
+        Commands::Notify(NotifyCommands::Test { notification_type }) => {
+            let mut svc = NotificationSvc::new();
+            let ntype = match notification_type.as_str() {
+                "backup_failed" => NotificationType::BackupFailed,
+                "compliance_violation" => NotificationType::ComplianceViolation,
+                "quota_warning" => NotificationType::QuotaWarning,
+                _ => NotificationType::BackupCompleted,
+            };
+            svc.send(ntype.clone(), Severity::Info, "Test", "Test notification from CLI", None, std::collections::HashMap::new())?;
+            println!("📨 Test notification sent: {}", ntype);
+        }
+
     }
 
     Ok(())

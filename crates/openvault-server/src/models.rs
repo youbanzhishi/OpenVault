@@ -352,3 +352,126 @@ pub struct RiskFactorItem {
     pub severity: String,
     pub description: String,
 }
+
+// ============================================================================
+// Phase 8: Enterprise Models
+// ============================================================================
+
+/// Create tenant request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTenantRequest {
+    pub name: String,
+    pub max_storage_bytes: Option<u64>,
+    pub max_files: Option<u64>,
+    pub max_copies: Option<u64>,
+}
+
+/// Tenant usage response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantUsageResponse {
+    pub tenant_id: String,
+    pub name: String,
+    pub storage_bytes: u64,
+    pub file_count: u64,
+    pub copy_count: u64,
+    pub max_storage_bytes: u64,
+    pub max_files: u64,
+    pub max_copies: u64,
+    pub within_quota: bool,
+}
+
+/// Audit query request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditQueryRequest {
+    pub start_time: Option<DateTime<Utc>>,
+    pub end_time: Option<DateTime<Utc>>,
+    pub user_id: Option<String>,
+    pub operation: Option<String>,
+    pub target: Option<String>,
+    pub result: Option<String>,
+    pub page: Option<u32>,
+    pub per_page: Option<u32>,
+}
+
+/// Audit entry in API response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEntryResponse {
+    pub seq: u64,
+    pub timestamp: DateTime<Utc>,
+    pub user_id: String,
+    pub operation: String,
+    pub target: String,
+    pub result: String,
+    pub metadata: std::collections::HashMap<String, String>,
+    pub hash: String,
+}
+
+/// Audit query response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditQueryResponse {
+    pub total: usize,
+    pub page: u32,
+    pub per_page: u32,
+    pub items: Vec<AuditEntryResponse>,
+}
+
+/// Compliance check request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceCheckRequest {
+    pub path: String,
+    pub region: String,
+    pub policy_retention_days: u32,
+}
+
+/// Compliance report response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceReportResponse {
+    pub timestamp: DateTime<Utc>,
+    pub overall_status: String,
+    pub rules_checked: u32,
+    pub rules_passed: u32,
+    pub rules_failed: u32,
+    pub findings: Vec<ComplianceFindingResponse>,
+}
+
+/// Compliance finding in response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceFindingResponse {
+    pub rule_id: String,
+    pub rule_name: String,
+    pub severity: String,
+    pub resource: String,
+    pub message: String,
+    pub detail: String,
+}
+
+/// Notification list response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationListResponse {
+    pub notifications: Vec<NotificationItemResponse>,
+    pub total: usize,
+    pub unread: usize,
+}
+
+/// Notification item in response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationItemResponse {
+    pub id: String,
+    pub notification_type: String,
+    pub severity: String,
+    pub title: String,
+    pub message: String,
+    pub timestamp: DateTime<Utc>,
+    pub read: bool,
+}
+
+/// Create notification rule request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateNotificationRuleRequest {
+    pub name: String,
+    pub notification_types: Vec<String>,
+    pub min_severity: Option<String>,
+    pub channels: Vec<String>,
+    pub dedup_minutes: Option<u32>,
+    pub webhook_url: Option<String>,
+}

@@ -52,7 +52,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/snapshots/:snapshot_id", get(get_snapshot))
         .route("/api/v1/snapshots/:snapshot_id", delete(delete_snapshot))
         
-        // Notifications
+        // Notifications (Phase 5 config)
         .route("/api/v1/notifications/config", get(get_notification_config))
         .route("/api/v1/notifications/config", put(update_notification_config))
         
@@ -60,6 +60,21 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/search", post(search_files))
         .route("/api/v1/restore/ai", post(ai_restore))
         .route("/api/v1/intel/suggestions", get(get_intel_suggestions))
+        
+        // Phase 8: Audit
+        .route("/api/v1/audit", get(query_audit))
+        
+        // Phase 8: Tenants
+        .route("/api/v1/tenants", post(create_tenant))
+        .route("/api/v1/tenants/:id/usage", get(get_tenant_usage))
+        
+        // Phase 8: Compliance
+        .route("/api/v1/compliance/check", get(compliance_check))
+        .route("/api/v1/compliance/report", get(compliance_report))
+        
+        // Phase 8: Notifications (enhanced)
+        .route("/api/v1/notifications", get(list_notifications))
+        .route("/api/v1/notifications/rules", post(create_notification_rule))
         
         // Add state and middleware
         .with_state(state)

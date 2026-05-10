@@ -16,18 +16,29 @@
 //!
 //! - **Search**: `FileIndex`, `TextExtractor`, `KeywordSearch`, `SemanticSearch` trait
 //! - **NL Restore**: `NaturalLanguageQuery` for natural language restore queries
+//!
+//! # Phase 8 Features
+//!
+//! - **Audit**: `AuditLog`, `AuditEntry`, `AuditQuery` — tamper-proof audit logging
+//! - **Compliance**: `ComplianceRule`, `ComplianceChecker`, `RetentionManager` — compliance & retention
+//! - **Tenant**: `Tenant`, `TenantManager`, `AccessControl` — multi-tenant & RBAC
+//! - **Notification**: `NotificationSvc`, `NotificationRule` — notification with dedup
 
+pub mod audit;
+pub mod compliance;
 pub mod config;
 pub mod crypto;
 pub mod engine;
 pub mod error;
 pub mod healing;
 pub mod integrity;
+pub mod notification;
 pub mod policy;
 pub mod restore;
 pub mod search;
 pub mod snapshot;
 pub mod storage;
+pub mod tenant;
 pub mod replicator;
 pub mod strategy;
 
@@ -88,3 +99,22 @@ pub use search::{
     SemanticSearch, KeywordSemanticSearch,
 };
 pub use restore::NaturalLanguageQuery;
+
+// Phase 8 re-exports
+pub use audit::{
+    AuditLog, AuditEntry, AuditOperation, AuditResult, AuditQuery, AuditQueryResult,
+    RotationConfig,
+};
+pub use compliance::{
+    ComplianceRule, ComplianceChecker, ComplianceReport, ComplianceStatus,
+    ComplianceFinding, FindingSeverity, DataClassification,
+    RetentionPolicy, RetentionManager, RetentionRecord, RetentionSweepResult,
+};
+pub use tenant::{
+    Tenant, TenantManager, TenantQuota, TenantUsage, QuotaResult, QuotaViolation, QuotaKind,
+    AccessControl, UserAccess, Role, Permission, role_permissions,
+};
+pub use notification::{
+    NotificationSvc, NotificationRule, NotificationType, Notification as NotificationRecord,
+    Severity, Channel,
+};

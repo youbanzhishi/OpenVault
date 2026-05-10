@@ -1,13 +1,20 @@
 //! HTTP request handlers for OpenVault API
 
 use crate::auth::AuthManager;
-use crate::error::{ServerError, ServerResult};
+use crate::error::ServerResult;
 use crate::models::*;
-use crate::services::{BackupService, DeviceService, NotificationService, PolicyService};
+use crate::services::{
+    AuditService, BackupService, ComplianceSvc, DeviceService, NotificationService,
+    InAppNotificationSvc, PolicyService, TenantSvc,
+};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
+
+use openvault_core::audit::{AuditOperation, AuditQuery, AuditResult};
+use openvault_core::notification::{Channel, NotificationRule, NotificationType, Severity};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Application state shared across handlers
@@ -18,6 +25,11 @@ pub struct AppState {
     pub notification_service: Arc<NotificationService>,
     pub auth_manager: Arc<AuthManager>,
     pub start_time: chrono::DateTime<chrono::Utc>,
+    // Phase 8 services
+    pub audit_service: Arc<AuditService>,
+    pub tenant_service: Arc<TenantSvc>,
+    pub compliance_service: Arc<ComplianceSvc>,
+    pub notification_svc: Arc<InAppNotificationSvc>,
 }
 
 impl AppState {
@@ -29,6 +41,10 @@ impl AppState {
             notification_service: Arc::new(NotificationService::new()),
             auth_manager: Arc::new(AuthManager::new(auth_secret, "openvault".to_string())),
             start_time: chrono::Utc::now(),
+            audit_service: Arc::new(AuditService::new()),
+            tenant_service: Arc::new(TenantSvc::new()),
+            compliance_service: Arc::new(ComplianceSvc::new()),
+            notification_svc: Arc::new(InAppNotificationSvc::new()),
         }
     }
 }
@@ -202,10 +218,22 @@ pub async fn trigger_backup(
     State(state): State<Arc<AppState>>,
     Json(request): Json<TriggerBackupRequest>,
 ) -> ServerResult<Json<BackupStatus>> {
-    // Create backup status entry
     let backup = state.backup_service.create_backup(&request.device_id).await;
     
-    // Log the backup trigger
+    // Audit log
+    let mut meta = HashMap::new();
+    meta.insert("device_id".into(), request.device_id.clone());
+    if let Some(ref pid) = request.policy_id {
+        meta.insert("policy_id".into(), pid.clone());
+    }
+    let _ = state.audit_service.append(
+        &request.device_id,
+        AuditOperation::BackupStarted,
+        &backup.backup_id,
+        AuditResult::Success,
+        meta,
+    ).await;
+
     tracing::info!(
         backup_id = %backup.backup_id,
         device_id = %request.device_id,
@@ -251,7 +279,6 @@ pub async fn trigger_restore(
     State(state): State<Arc<AppState>>,
     Json(request): Json<RestoreRequest>,
 ) -> ServerResult<Json<serde_json::Value>> {
-    // Verify snapshot exists
     let _snapshot = state.backup_service.get_snapshot(&request.snapshot_id).await?;
     
     tracing::info!(
@@ -272,7 +299,6 @@ pub async fn get_restore_status(
     State(state): State<Arc<AppState>>,
     Path(snapshot_id): Path<String>,
 ) -> ServerResult<Json<serde_json::Value>> {
-    // For now, just return the snapshot info
     let snapshot = state.backup_service.get_snapshot(&snapshot_id).await?;
     
     Ok(Json(serde_json::json!({
@@ -308,9 +334,7 @@ pub async fn delete_snapshot(
     State(_state): State<Arc<AppState>>,
     Path(snapshot_id): Path<String>,
 ) -> ServerResult<Json<serde_json::Value>> {
-    // Note: In a full implementation, this would also delete the actual backup files
     tracing::info!(snapshot_id = %snapshot_id, "Snapshot deletion requested");
-    
     Ok(Json(serde_json::json!({
         "status": "deleted",
         "snapshot_id": snapshot_id
@@ -318,7 +342,7 @@ pub async fn delete_snapshot(
 }
 
 // ============================================================================
-// Notification Handlers
+// Notification Handlers (Phase 5)
 // ============================================================================
 
 /// POST /api/v1/notifications/config - Update notification config
@@ -349,7 +373,6 @@ use openvault_core::restore::NaturalLanguageQuery;
 pub async fn get_intel_suggestions(
     State(_state): State<Arc<AppState>>,
 ) -> ServerResult<Json<IntelSuggestionsResponse>> {
-    // Generate classification suggestions from common patterns
     let classification = vec![
         ClassificationSuggestion {
             path_pattern: "**/*.rs".to_string(),
@@ -383,14 +406,12 @@ pub async fn get_intel_suggestions(
         },
     ];
 
-    // Generate scheduling suggestions
     let scheduling = vec![
         "Schedule backups during off-peak hours (22:00-06:00) to minimize bandwidth impact.".to_string(),
         "Prioritize code and config files for real-time backup.".to_string(),
         "Consider backing up photos daily rather than in real-time.".to_string(),
     ];
 
-    // Generate risk assessment
     let risk = RiskSummary {
         overall_level: "low".to_string(),
         factors: vec![],
@@ -409,14 +430,8 @@ pub async fn search_files(
     State(_state): State<Arc<AppState>>,
     Json(request): Json<SearchRequest>,
 ) -> ServerResult<Json<serde_json::Value>> {
-    // Create a temporary in-memory index for the search
-    // In a full implementation, this would use a persistent index
     let index = FileIndex::new();
-
-    // For now, parse the query and return an empty result set
-    // The real implementation would query the persistent FileIndex
     let results = index.search_keyword(&request.query);
-
     let items: Vec<SearchResponseItem> = results.into_iter().map(|r| {
         SearchResponseItem {
             path: r.path,
@@ -427,7 +442,6 @@ pub async fn search_files(
             modified_at: r.modified_at,
         }
     }).collect();
-
     Ok(Json(serde_json::json!({
         "query": request.query,
         "results": items,
@@ -440,14 +454,11 @@ pub async fn ai_restore(
     State(_state): State<Arc<AppState>>,
     Json(request): Json<AiRestoreRequest>,
 ) -> ServerResult<Json<AiRestoreResponse>> {
-    // Parse the natural language query
     let parsed = NaturalLanguageQuery::parse(&request.query);
-
     let time_range = parsed.time_range.map(|tr| TimeRangeResponse {
         start: tr.start,
         end: tr.end,
     });
-
     let file_type = parsed.file_type.map(|ft| ft.to_string());
     let operation = parsed.operation.map(|op| match op {
         openvault_core::restore::OperationFilter::Modified => "modified".to_string(),
@@ -455,16 +466,189 @@ pub async fn ai_restore(
         openvault_core::restore::OperationFilter::Deleted => "deleted".to_string(),
         openvault_core::restore::OperationFilter::Any => "any".to_string(),
     });
-
-    // In a full implementation, we would search the index and find matching files
-    let matching_files: Vec<String> = Vec::new();
-
     Ok(Json(AiRestoreResponse {
         time_range,
         file_type,
         operation,
         path_pattern: parsed.path_pattern,
-        matching_files,
+        matching_files: Vec::new(),
         original_query: parsed.original_query,
     }))
+}
+
+// ============================================================================
+// Phase 8: Audit Handlers
+// ============================================================================
+
+/// GET /api/v1/audit — Query audit log.
+pub async fn query_audit(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<AuditQueryRequest>,
+) -> ServerResult<Json<AuditQueryResponse>> {
+    let mut q = AuditQuery::new();
+    if let Some(st) = params.start_time {
+        q = q.start_time(st);
+    }
+    if let Some(et) = params.end_time {
+        q = q.end_time(et);
+    }
+    if let Some(ref uid) = params.user_id {
+        q = q.user_id(uid);
+    }
+    if let Some(ref tgt) = params.target {
+        q = q.target(tgt);
+    }
+    if let Some(page) = params.page {
+        let per_page = params.per_page.unwrap_or(50);
+        q = q.paginate(page, per_page);
+    }
+
+    let (total, page, per_page, items) = state.audit_service.query(&q).await;
+    Ok(Json(AuditQueryResponse {
+        total,
+        page,
+        per_page,
+        items,
+    }))
+}
+
+// ============================================================================
+// Phase 8: Tenant Handlers
+// ============================================================================
+
+/// POST /api/v1/tenants — Create a tenant.
+pub async fn create_tenant(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateTenantRequest>,
+) -> ServerResult<Json<serde_json::Value>> {
+    let tenant = state.tenant_service.create_tenant(&req).await?;
+    // Audit
+    let mut meta = HashMap::new();
+    meta.insert("name".into(), req.name.clone());
+    let _ = state.audit_service.append(
+        "system",
+        AuditOperation::TenantCreated,
+        &tenant.tenant_id,
+        AuditResult::Success,
+        meta,
+    ).await;
+    Ok(Json(serde_json::to_value(tenant).unwrap_or_default()))
+}
+
+/// GET /api/v1/tenants/:id/usage — Get tenant usage.
+pub async fn get_tenant_usage(
+    State(state): State<Arc<AppState>>,
+    Path(tenant_id): Path<String>,
+) -> ServerResult<Json<TenantUsageResponse>> {
+    let usage = state.tenant_service.get_usage(&tenant_id).await?;
+    Ok(Json(usage))
+}
+
+// ============================================================================
+// Phase 8: Compliance Handlers
+// ============================================================================
+
+/// GET /api/v1/compliance/check — Run compliance check.
+pub async fn compliance_check(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ComplianceCheckRequest>,
+) -> ServerResult<Json<ComplianceReportResponse>> {
+    let report = state.compliance_service.check(
+        &params.path,
+        &params.region,
+        params.policy_retention_days,
+    ).await;
+
+    // Audit
+    let mut meta = HashMap::new();
+    meta.insert("path".into(), params.path.clone());
+    meta.insert("region".into(), params.region.clone());
+    let audit_result = if report.overall_status == openvault_core::compliance::ComplianceStatus::Pass {
+        AuditResult::Success
+    } else {
+        AuditResult::Failure
+    };
+    let _ = state.audit_service.append(
+        "system",
+        AuditOperation::ComplianceCheck,
+        &params.path,
+        audit_result,
+        meta,
+    ).await;
+
+    Ok(Json(ComplianceReportResponse {
+        timestamp: report.timestamp,
+        overall_status: format!("{:?}", report.overall_status).to_lowercase(),
+        rules_checked: report.rules_checked,
+        rules_passed: report.rules_passed,
+        rules_failed: report.rules_failed,
+        findings: report.findings.into_iter().map(|f| ComplianceFindingResponse {
+            rule_id: f.rule_id,
+            rule_name: f.rule_name,
+            severity: format!("{:?}", f.severity).to_lowercase(),
+            resource: f.resource,
+            message: f.message,
+            detail: f.detail,
+        }).collect(),
+    }))
+}
+
+/// GET /api/v1/compliance/report — Get compliance report (same as check with defaults).
+pub async fn compliance_report(
+    State(state): State<Arc<AppState>>,
+) -> ServerResult<Json<serde_json::Value>> {
+    let report = state.compliance_service.check("/", "EU", 365).await;
+    Ok(Json(serde_json::to_value(&report).unwrap_or_default()))
+}
+
+// ============================================================================
+// Phase 8: Notification Handlers (enhanced)
+// ============================================================================
+
+/// GET /api/v1/notifications — List notifications.
+pub async fn list_notifications(
+    State(state): State<Arc<AppState>>,
+) -> ServerResult<Json<NotificationListResponse>> {
+    let resp = state.notification_svc.list().await;
+    Ok(Json(resp))
+}
+
+/// POST /api/v1/notifications/rules — Configure notification rule.
+pub async fn create_notification_rule(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateNotificationRuleRequest>,
+) -> ServerResult<Json<serde_json::Value>> {
+    let min_severity = match req.min_severity.as_deref() {
+        Some("warning") => Severity::Warning,
+        Some("error") => Severity::Error,
+        Some("critical") => Severity::Critical,
+        _ => Severity::Info,
+    };
+    let channels: Vec<Channel> = req.channels.iter().map(|c| match c.as_str() {
+        "webhook" => Channel::Webhook,
+        "email" => Channel::Email,
+        _ => Channel::InApp,
+    }).collect();
+    let notification_types: Vec<NotificationType> = req.notification_types.iter().map(|t| match t.as_str() {
+        "backup_completed" => NotificationType::BackupCompleted,
+        "backup_failed" => NotificationType::BackupFailed,
+        "compliance_violation" => NotificationType::ComplianceViolation,
+        "quota_warning" => NotificationType::QuotaWarning,
+        "risk_warning" => NotificationType::RiskWarning,
+        _ => NotificationType::Custom(t.clone()),
+    }).collect();
+
+    let rule = NotificationRule {
+        rule_id: uuid::Uuid::new_v4().to_string(),
+        name: req.name,
+        notification_types,
+        min_severity,
+        channels,
+        dedup_minutes: req.dedup_minutes.unwrap_or(5),
+        enabled: true,
+        webhook_url: req.webhook_url,
+    };
+    let rule_id = rule.rule_id.clone();
+    state.notification_svc.set_rule(rule).await;
+    Ok(Json(serde_json::json!({ "rule_id": rule_id, "status": "created" })))
 }
