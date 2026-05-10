@@ -11,6 +11,11 @@
 //! - **Incremental**: Content-defined chunking (CDC), dedup chunk store,
 //!   `IncrementalBackup`, `BackupManifest`, `BackupRestore`
 //! - **Pipeline**: Composable `StoragePipeline` with builder pattern
+//!
+//! # Phase 7 Features
+//!
+//! - **Search**: `FileIndex`, `TextExtractor`, `KeywordSearch`, `SemanticSearch` trait
+//! - **NL Restore**: `NaturalLanguageQuery` for natural language restore queries
 
 pub mod config;
 pub mod crypto;
@@ -20,6 +25,7 @@ pub mod healing;
 pub mod integrity;
 pub mod policy;
 pub mod restore;
+pub mod search;
 pub mod snapshot;
 pub mod storage;
 pub mod replicator;
@@ -75,3 +81,10 @@ pub use incremental::{
 pub use pipeline::{
     StoragePipeline, PipelineBuilder, PipelineConfig,
 };
+
+// Phase 7 re-exports
+pub use search::{
+    FileIndex, FileIndexEntry, SearchResult, TextExtractor, ExtractedText,
+    SemanticSearch, KeywordSemanticSearch,
+};
+pub use restore::NaturalLanguageQuery;

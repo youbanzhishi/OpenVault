@@ -5,6 +5,7 @@ members = [
     "crates/openvault-cli",
     "crates/openvault-transport",
     "crates/openvault-server",
+    "crates/openvault-intel",
 ]
 resolver = "2"
 

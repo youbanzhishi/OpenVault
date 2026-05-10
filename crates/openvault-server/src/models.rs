@@ -257,3 +257,98 @@ pub struct WebhookPayload {
     pub message: String,
     pub details: Option<serde_json::Value>,
 }
+
+// ============================================================================
+// Phase 7: Search & AI Models
+// ============================================================================
+
+/// Search request body.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRequest {
+    /// Keyword query string.
+    pub query: String,
+    /// Maximum number of results to return.
+    pub limit: Option<usize>,
+}
+
+/// Search result item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResponseItem {
+    pub path: String,
+    pub snippet: String,
+    pub relevance: f64,
+    pub tags: Vec<String>,
+    pub size: u64,
+    pub modified_at: DateTime<Utc>,
+}
+
+/// AI-powered restore request body.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiRestoreRequest {
+    /// Natural language query (e.g., "restore my photos from last week").
+    pub query: String,
+    /// Target device for restoration.
+    pub target_device_id: Option<String>,
+    /// Target path for restoration.
+    pub target_path: Option<String>,
+}
+
+/// AI restore response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiRestoreResponse {
+    /// Parsed time range.
+    pub time_range: Option<TimeRangeResponse>,
+    /// Parsed file type filter.
+    pub file_type: Option<String>,
+    /// Parsed operation type.
+    pub operation: Option<String>,
+    /// Parsed path pattern.
+    pub path_pattern: Option<String>,
+    /// Matching files found.
+    pub matching_files: Vec<String>,
+    /// Original query.
+    pub original_query: String,
+}
+
+/// Time range in API response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeRangeResponse {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+}
+
+/// Intelligence suggestions response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntelSuggestionsResponse {
+    /// File classification suggestions.
+    pub classification: Vec<ClassificationSuggestion>,
+    /// Scheduling suggestions.
+    pub scheduling: Vec<String>,
+    /// Risk assessment.
+    pub risk: RiskSummary,
+}
+
+/// A single classification suggestion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassificationSuggestion {
+    pub path_pattern: String,
+    pub category: String,
+    pub priority: String,
+    pub backup_mode: String,
+}
+
+/// Risk summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskSummary {
+    pub overall_level: String,
+    pub factors: Vec<RiskFactorItem>,
+    pub recommendation: String,
+}
+
+/// A single risk factor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskFactorItem {
+    pub name: String,
+    pub severity: String,
+    pub description: String,
+}

@@ -43,6 +43,7 @@ hmac = "0.12"
 # OpenVault types
 openvault-core = { path = "../openvault-core" }
 openvault-transport = { path = "../openvault-transport" }
+openvault-intel = { path = "../openvault-intel" }
 
 # HTTP client (for webhook notifications) - use reqwest 0.11
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }

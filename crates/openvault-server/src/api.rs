@@ -56,6 +56,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/notifications/config", get(get_notification_config))
         .route("/api/v1/notifications/config", put(update_notification_config))
         
+        // Phase 7: Search & AI endpoints
+        .route("/api/v1/search", post(search_files))
+        .route("/api/v1/restore/ai", post(ai_restore))
+        .route("/api/v1/intel/suggestions", get(get_intel_suggestions))
+        
         // Add state and middleware
         .with_state(state)
         .layer(cors)

@@ -637,3 +637,409 @@ mod tests {
         let _ = ConflictStrategy::Fail;
     }
 }
+
+// ============================================================================
+// Phase 7: Natural Language Query
+// ============================================================================
+
+use chrono::{Duration, Datelike};
+
+/// Parsed time range from a natural language query.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TimeRange {
+    /// Start of the time range (inclusive).
+    pub start: chrono::DateTime<chrono::Utc>,
+    /// End of the time range (exclusive).
+    pub end: chrono::DateTime<chrono::Utc>,
+}
+
+/// Parsed file type from a natural language query.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileTypeFilter {
+    Code,
+    Document,
+    Image,
+    Video,
+    Audio,
+    Data,
+    Config,
+    Log,
+    Any,
+}
+
+impl std::fmt::Display for FileTypeFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FileTypeFilter::Code => write!(f, "code"),
+            FileTypeFilter::Document => write!(f, "document"),
+            FileTypeFilter::Image => write!(f, "image"),
+            FileTypeFilter::Video => write!(f, "video"),
+            FileTypeFilter::Audio => write!(f, "audio"),
+            FileTypeFilter::Data => write!(f, "data"),
+            FileTypeFilter::Config => write!(f, "config"),
+            FileTypeFilter::Log => write!(f, "log"),
+            FileTypeFilter::Any => write!(f, "any"),
+        }
+    }
+}
+
+/// Parsed operation type from a natural language query.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationFilter {
+    Modified,
+    Created,
+    Deleted,
+    Any,
+}
+
+/// A structured query parsed from natural language.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ParsedQuery {
+    /// Parsed time range (if specified).
+    pub time_range: Option<TimeRange>,
+    /// Parsed file type (if specified).
+    pub file_type: Option<FileTypeFilter>,
+    /// Parsed operation type (if specified).
+    pub operation: Option<OperationFilter>,
+    /// Path pattern (if specified, e.g., "src/" or "*.pdf").
+    pub path_pattern: Option<String>,
+    /// Original query text.
+    pub original_query: String,
+}
+
+/// Natural language query parser for restore operations.
+///
+/// Parses queries like:
+/// - "restore files from last week"
+/// - "show me all code files modified in the last 3 days"
+/// - "find photos from 2026 May"
+/// - "recover deleted documents"
+pub struct NaturalLanguageQuery;
+
+impl NaturalLanguageQuery {
+    /// Parse a natural language query into a structured query.
+    pub fn parse(query: &str) -> ParsedQuery {
+        let lower = query.to_lowercase();
+
+        let time_range = Self::parse_time_range(&lower);
+        let file_type = Self::parse_file_type(&lower);
+        let operation = Self::parse_operation(&lower);
+        let path_pattern = Self::parse_path_pattern(&lower);
+
+        ParsedQuery {
+            time_range,
+            file_type,
+            operation,
+            path_pattern,
+            original_query: query.to_string(),
+        }
+    }
+
+    /// Parse time range from the query.
+    fn parse_time_range(lower: &str) -> Option<TimeRange> {
+        let now = chrono::Utc::now();
+
+        // "last week" / "上周"
+        if lower.contains("last week") || lower.contains("上周") {
+            return Some(TimeRange {
+                start: now - Duration::weeks(1),
+                end: now,
+            });
+        }
+
+        // "this week" / "本周"
+        if lower.contains("this week") || lower.contains("本周") {
+            let days_since_monday = now.weekday().num_days_from_monday();
+            return Some(TimeRange {
+                start: now - Duration::days(days_since_monday as i64),
+                end: now,
+            });
+        }
+
+        // "last N days" / "最近N天"
+        if let Some(n) = Self::extract_number_before(lower, "days") {
+            return Some(TimeRange {
+                start: now - Duration::days(n),
+                end: now,
+            });
+        }
+        // Chinese: "最近3天"
+        if let Some(n) = Self::extract_number_after(lower, "最近") {
+            if lower.contains("天") {
+                return Some(TimeRange {
+                    start: now - Duration::days(n),
+                    end: now,
+                });
+            }
+        }
+
+        // "last N hours" / "最近N小时"
+        if let Some(n) = Self::extract_number_before(lower, "hours") {
+            return Some(TimeRange {
+                start: now - Duration::hours(n),
+                end: now,
+            });
+        }
+
+        // "last month" / "上个月"
+        if lower.contains("last month") || lower.contains("上个月") {
+            return Some(TimeRange {
+                start: now - Duration::days(30),
+                end: now,
+            });
+        }
+
+        // "YYYY年M月" pattern (Chinese year-month)
+        if let Some(range) = Self::parse_chinese_year_month(lower) {
+            return Some(range);
+        }
+
+        // "today" / "今天"
+        if lower.contains("today") || lower.contains("今天") {
+            return Some(TimeRange {
+                start: now - Duration::hours(24),
+                end: now,
+            });
+        }
+
+        // "yesterday" / "昨天"
+        if lower.contains("yesterday") || lower.contains("昨天") {
+            let yesterday = now - Duration::days(1);
+            return Some(TimeRange {
+                start: yesterday - Duration::hours(24),
+                end: yesterday,
+            });
+        }
+
+        None
+    }
+
+    /// Parse file type from the query.
+    fn parse_file_type(lower: &str) -> Option<FileTypeFilter> {
+        let code_keywords = ["code", "代码", "source", "源码", "program"];
+        let doc_keywords = ["document", "文档", "合同", "contract", "pdf", "word"];
+        let image_keywords = ["photo", "photos", "image", "照片", "图片", "图片"];
+        let video_keywords = ["video", "视频", "movie"];
+        let audio_keywords = ["audio", "音乐", "music", "音频"];
+        let data_keywords = ["data", "数据", "database", "数据库", "csv"];
+        let config_keywords = ["config", "配置", "settings"];
+        let log_keywords = ["log", "日志"];
+
+        if code_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(FileTypeFilter::Code);
+        }
+        if doc_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(FileTypeFilter::Document);
+        }
+        if image_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(FileTypeFilter::Image);
+        }
+        if video_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(FileTypeFilter::Video);
+        }
+        if audio_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(FileTypeFilter::Audio);
+        }
+        if data_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(FileTypeFilter::Data);
+        }
+        if config_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(FileTypeFilter::Config);
+        }
+        if log_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(FileTypeFilter::Log);
+        }
+
+        None
+    }
+
+    /// Parse operation type from the query.
+    fn parse_operation(lower: &str) -> Option<OperationFilter> {
+        let modified_keywords = ["modified", "修改", "changed", "变更", "编辑"];
+        let created_keywords = ["created", "新建", "new", "新增", "添加"];
+        let deleted_keywords = ["deleted", "删除", "removed", "丢失", "丢失"];
+
+        if modified_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(OperationFilter::Modified);
+        }
+        if created_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(OperationFilter::Created);
+        }
+        if deleted_keywords.iter().any(|k| lower.contains(k)) {
+            return Some(OperationFilter::Deleted);
+        }
+
+        None
+    }
+
+    /// Parse path pattern from the query.
+    fn parse_path_pattern(lower: &str) -> Option<String> {
+        // Look for common path patterns like "src/" or "*.pdf"
+        if lower.contains("src/") || lower.contains("source/") {
+            return Some("src/".to_string());
+        }
+        if lower.contains("*.pdf") {
+            return Some("*.pdf".to_string());
+        }
+        if lower.contains("*.doc") || lower.contains("*.docx") {
+            return Some("*.doc*".to_string());
+        }
+        if lower.contains("desktop") || lower.contains("桌面") {
+            return Some("Desktop/".to_string());
+        }
+        if lower.contains("documents") || lower.contains("文档目录") {
+            return Some("Documents/".to_string());
+        }
+
+        None
+    }
+
+    /// Extract a number before a keyword (e.g., "3 days" → 3).
+    fn extract_number_before(text: &str, keyword: &str) -> Option<i64> {
+        if let Some(pos) = text.find(keyword) {
+            let before = &text[..pos];
+            let num_str: String = before.chars().rev()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .chars().rev().collect();
+            if let Ok(n) = num_str.parse::<i64>() {
+                return Some(n);
+            }
+        }
+        None
+    }
+
+    /// Extract a number after a keyword (for Chinese patterns like "最近3天").
+    fn extract_number_after(text: &str, keyword: &str) -> Option<i64> {
+        if let Some(pos) = text.find(keyword) {
+            let after = &text[pos + keyword.len()..];
+            let num_str: String = after.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if let Ok(n) = num_str.parse::<i64>() {
+                return Some(n);
+            }
+            // Also try Chinese numerals
+            let cn_digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+            let first_char = after.chars().next();
+            if let Some(c) = first_char {
+                if let Some(idx) = cn_digits.iter().position(|&d| d == c) {
+                    return Some(idx as i64);
+                }
+            }
+        }
+        None
+    }
+
+    /// Parse Chinese year-month pattern (e.g., "2026年5月").
+    fn parse_chinese_year_month(lower: &str) -> Option<TimeRange> {
+        // Look for "YYYY年M月" pattern
+        if let Some(pos) = lower.find("年") {
+            let year_str: String = lower[..pos].chars().rev()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .chars().rev().collect();
+            let year: i32 = year_str.parse().ok()?;
+
+            let after_year = &lower[pos + "年".len()..];
+            let month_str: String = after_year.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            let month: u32 = month_str.parse().ok()?;
+
+            if month >= 1 && month <= 12 && year >= 2000 && year <= 2100 {
+                if let Some(start) = chrono::NaiveDate::from_ymd_opt(year, month, 1) {
+                    let start_dt = chrono::DateTime::from_naive_utc_and_offset(start.and_hms_opt(0, 0, 0)?, chrono::Utc);
+                    // End of month
+                    let next_month = if month == 12 { 1 } else { month + 1 };
+                    let next_year = if month == 12 { year + 1 } else { year };
+                    let end_date = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)?;
+                    let end_dt = chrono::DateTime::from_naive_utc_and_offset(end_date.and_hms_opt(0, 0, 0)?, chrono::Utc);
+                    return Some(TimeRange { start: start_dt, end: end_dt });
+                }
+            }
+        }
+        None
+    }
+}
+
+// ============================================================================
+// Phase 7: NL Query Tests
+// ============================================================================
+
+#[cfg(test)]
+mod nl_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_last_week() {
+        let query = NaturalLanguageQuery::parse("restore files from last week");
+        assert!(query.time_range.is_some());
+        let range = query.time_range.unwrap();
+        assert!(range.end > range.start);
+    }
+
+    #[test]
+    fn test_parse_last_3_days() {
+        let query = NaturalLanguageQuery::parse("show me code from last 3 days");
+        assert!(query.time_range.is_some());
+        assert_eq!(query.file_type, Some(FileTypeFilter::Code));
+    }
+
+    #[test]
+    fn test_parse_photos() {
+        let query = NaturalLanguageQuery::parse("find photos from yesterday");
+        assert_eq!(query.file_type, Some(FileTypeFilter::Image));
+        assert!(query.time_range.is_some());
+    }
+
+    #[test]
+    fn test_parse_deleted_documents() {
+        let query = NaturalLanguageQuery::parse("recover deleted documents");
+        assert_eq!(query.operation, Some(OperationFilter::Deleted));
+        assert_eq!(query.file_type, Some(FileTypeFilter::Document));
+    }
+
+    #[test]
+    fn test_parse_modified_code() {
+        let query = NaturalLanguageQuery::parse("show modified code files");
+        assert_eq!(query.operation, Some(OperationFilter::Modified));
+        assert_eq!(query.file_type, Some(FileTypeFilter::Code));
+    }
+
+    #[test]
+    fn test_parse_chinese_query() {
+        let query = NaturalLanguageQuery::parse("恢复最近3天的代码");
+        assert!(query.time_range.is_some());
+        assert_eq!(query.file_type, Some(FileTypeFilter::Code));
+    }
+
+    #[test]
+    fn test_parse_no_specifics() {
+        let query = NaturalLanguageQuery::parse("restore everything");
+        assert!(query.time_range.is_none());
+        assert!(query.file_type.is_none());
+    }
+
+    #[test]
+    fn test_parse_path_pattern() {
+        let query = NaturalLanguageQuery::parse("restore files from src/ directory");
+        assert_eq!(query.path_pattern, Some("src/".to_string()));
+    }
+
+    #[test]
+    fn test_parse_today() {
+        let query = NaturalLanguageQuery::parse("show files modified today");
+        assert!(query.time_range.is_some());
+        assert_eq!(query.operation, Some(OperationFilter::Modified));
+    }
+
+    #[test]
+    fn test_parsed_query_preserves_original() {
+        let original = "find my lost photos from last week";
+        let query = NaturalLanguageQuery::parse(original);
+        assert_eq!(query.original_query, original);
+    }
+}
