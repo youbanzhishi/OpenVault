@@ -45,6 +45,12 @@ pub enum VaultError {
 
     #[error("Self-healing failed: {0}")]
     SelfHealingFailed(String),
+
+    #[error("Compression error: {0}")]
+    Compression(String),
+
+    #[error("Incremental backup error: {0}")]
+    Incremental(String),
 }
 
 pub type VaultResult<T> = Result<T, VaultError>;

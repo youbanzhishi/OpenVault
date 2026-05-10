@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "OpenVault core abstractions, types, and backup engine"
 
+[features]
+default = ["crypto-advanced", "compress", "incremental", "pipeline"]
+crypto-advanced = ["dep:pbkdf2", "dep:hmac"]
+compress = ["dep:zstd", "dep:lz4_flex"]
+incremental = []
+pipeline = ["crypto-advanced", "compress"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
@@ -20,6 +27,14 @@ tokio = { version = "1", features = ["rt-multi-thread", "fs", "io-util", "sync"]
 futures = "0.3"
 hex = "0.4"
 filetime = "0.2"
+
+# Phase 6: Encryption enhancements (PBKDF2 key derivation)
+pbkdf2 = { version = "0.12", optional = true }
+hmac = { version = "0.12", optional = true }
+
+# Phase 6: Compression
+zstd = { version = "0.13", optional = true }
+lz4_flex = { version = "0.11", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
