@@ -301,3 +301,318 @@ curl -X POST http://localhost:8090/api/v1/notifications/rules \
 ---
 
 *OpenVault v1.0.1 — Agent 接入指南*
+
+---
+
+## Agent Action Protocol v2 定义
+
+> OpenVault 的 agent.json v2 能力声明，遵循 [Agent Action Protocol](https://github.com/youbanzhishi/open-knowledge-system/blob/main/共享知识/设计模式/Agent-Action-Protocol.md)。
+
+### agent.json v2
+
+```json
+{
+  "schema_version": "2.0",
+  "name": "openvault",
+  "description": "安全智能的文件备份与容灾恢复系统——3-2-1策略，AI自愈",
+  "version": "1.0.1",
+  "base_url": "http://localhost:8090",
+  "auth": {
+    "type": "bearer",
+    "header": "Authorization"
+  },
+  "capabilities": [
+    {
+      "name": "retrieve",
+      "description": "从备份快照中检索并恢复指定文件到目标路径",
+      "category": "execute",
+      "endpoint": "POST /api/v1/restore",
+      "input": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "description": "快照UUID"
+          },
+          "target": {
+            "type": "string",
+            "description": "恢复目标路径"
+          },
+          "file_pattern": {
+            "type": "string",
+            "description": "文件匹配模式，支持通配符，如'*.wav'或'vocal_*'"
+          }
+        },
+        "required": ["snapshot_id", "target"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "restore_id": { "type": "string", "description": "恢复任务ID" },
+          "snapshot_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "running", "completed", "failed"] },
+          "files_restored": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "已恢复的文件列表"
+          }
+        }
+      },
+      "examples": [
+        {
+          "input": { "snapshot_id": "snap-20240615120000-0000", "target": "/tmp/restored", "file_pattern": "*.wav" },
+          "output": {
+            "restore_id": "rst-a1b2c3",
+            "snapshot_id": "snap-20240615120000-0000",
+            "status": "completed",
+            "files_restored": ["/tmp/restored/vocal_dry.wav", "/tmp/restored/accomp.wav"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "backup",
+      "description": "触发指定设备的备份操作，支持全量/增量/差异策略",
+      "category": "execute",
+      "endpoint": "POST /api/v1/backup",
+      "input": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "description": "设备ID"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": ["full", "incremental", "differential"],
+            "description": "备份策略，默认incremental"
+          },
+          "source_path": {
+            "type": "string",
+            "description": "备份源路径"
+          },
+          "storage_backends": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "存储后端列表，如['local', 's3']"
+          }
+        },
+        "required": ["device_id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "backup_id": { "type": "string", "description": "备份任务ID" },
+          "device_id": { "type": "string" },
+          "strategy": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "running", "completed", "failed"] },
+          "snapshot_id": { "type": "string", "description": "完成后生成的快照ID" }
+        }
+      },
+      "examples": [
+        {
+          "input": { "device_id": "dev-001", "strategy": "incremental", "storage_backends": ["local", "s3"] },
+          "output": {
+            "backup_id": "bak-d4e5f6",
+            "device_id": "dev-001",
+            "strategy": "incremental",
+            "status": "pending",
+            "snapshot_id": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "description": "在备份文件中搜索，支持关键词和语义搜索，跨快照查询",
+      "category": "search",
+      "endpoint": "POST /api/v1/search",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词或语义查询"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["keyword", "semantic"],
+            "description": "搜索模式，默认keyword"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回结果数量，默认20"
+          }
+        },
+        "required": ["query"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "file_path": { "type": "string" },
+                "snapshot_id": { "type": "string" },
+                "size": { "type": "integer" },
+                "modified_at": { "type": "string" },
+                "relevance_score": { "type": "number" }
+              }
+            }
+          },
+          "total": { "type": "integer" }
+        }
+      },
+      "examples": [
+        {
+          "input": { "query": "混音工程文件", "mode": "semantic", "limit": 10 },
+          "output": {
+            "results": [
+              {
+                "file_path": "/data/projects/夏日之歌.opendaw",
+                "snapshot_id": "snap-20240615120000-0000",
+                "size": 524288,
+                "modified_at": "2024-06-15T10:30:00Z",
+                "relevance_score": 0.92
+              }
+            ],
+            "total": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "verify",
+      "description": "验证备份快照的完整性，检查数据校验和与3-2-1合规性",
+      "category": "search",
+      "endpoint": "GET /api/v1/compliance/check",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "检查路径"
+          },
+          "region": {
+            "type": "string",
+            "description": "合规区域，如EU/CN"
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "compliant": { "type": "boolean", "description": "是否合规" },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": { "type": "string" },
+                "passed": { "type": "boolean" },
+                "detail": { "type": "string" }
+              }
+            }
+          },
+          "score": { "type": "number", "description": "合规评分 0-100" }
+        }
+      },
+      "examples": [
+        {
+          "input": { "path": "/data/important", "region": "CN" },
+          "output": {
+            "compliant": true,
+            "checks": [
+              { "rule": "3_copies", "passed": true, "detail": "3份数据副本确认" },
+              { "rule": "2_media", "passed": true, "detail": "本地+S3两种存储介质" },
+              { "rule": "1_offsite", "passed": true, "detail": "S3异地备份确认" }
+            ],
+            "score": 100
+          }
+        }
+      ]
+    },
+    {
+      "name": "get_status",
+      "description": "获取系统整体状态，包含设备、备份、快照统计",
+      "category": "search",
+      "endpoint": "GET /api/v1/status",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "devices": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "online": { "type": "integer" }
+            }
+          },
+          "backups": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "last_success": { "type": "string" }
+            }
+          },
+          "snapshots": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "total_size_bytes": { "type": "integer" }
+            }
+          },
+          "health": { "type": "string", "enum": ["ok", "degraded", "critical"] }
+        }
+      },
+      "examples": [
+        {
+          "input": {},
+          "output": {
+            "devices": { "total": 3, "online": 2 },
+            "backups": { "total": 42, "last_success": "2024-06-15T02:00:00Z" },
+            "snapshots": { "total": 120, "total_size_bytes": 5368709120 },
+            "health": "ok"
+          }
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "name": "knowledge_archive",
+      "description": "知识归档流：OpenDAW导出→OpenMind入库→OpenVault备份",
+      "steps": [
+        { "project": "opendaw", "action": "export" },
+        { "project": "openmind", "action": "ingest" },
+        { "project": "openvault", "action": "backup" }
+      ]
+    },
+    {
+      "name": "disaster_recovery",
+      "description": "容灾恢复流：OpenVault检索→验证→恢复文件",
+      "steps": [
+        { "project": "openvault", "action": "search" },
+        { "project": "openvault", "action": "verify" },
+        { "project": "openvault", "action": "retrieve" }
+      ]
+    }
+  ],
+  "events": {
+    "subscribe": "POST /api/v1/events/subscribe",
+    "types": ["backup.started", "backup.completed", "backup.failed", "restore.completed", "compliance.violation", "self_healing.triggered"]
+  },
+  "links": {
+    "docs": "https://github.com/youbanzhishi/OpenVault/docs",
+    "source": "https://github.com/youbanzhishi/OpenVault",
+    "health": "http://localhost:8090/api/v1/health"
+  }
+}
+```
