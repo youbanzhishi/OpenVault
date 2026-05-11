@@ -384,3 +384,171 @@ networks:
 ---
 
 *OpenVault v1.0.0 — Phase 10 Documentation*
+---
+
+## 非 Docker 部署（二进制直接部署）
+
+如果你不想使用 Docker，可以直接下载预编译二进制或从源码编译。
+
+### 方式一：下载预编译二进制
+
+从 [GitHub Releases](https://github.com/youbanzhishi/OpenVault/releases) 下载对应平台的二进制：
+
+```bash
+# Linux x86_64
+curl -L https://github.com/youbanzhishi/OpenVault/releases/latest/download/vault-linux-amd64.tar.gz | tar xz
+chmod +x openvault-cli
+sudo mv openvault-cli /usr/local/bin/openvault
+
+# macOS (Apple Silicon)
+curl -L https://github.com/youbanzhishi/OpenVault/releases/latest/download/vault-macos-arm64.tar.gz | tar xz
+chmod +x openvault-cli
+sudo mv openvault-cli /usr/local/bin/openvault
+
+# Windows
+# 下载 vault-windows-amd64.exe.zip，解压后使用
+```
+
+#### 创建 systemd 服务（Linux）
+
+```bash
+# 创建配置目录
+sudo mkdir -p /etc/openvault /var/lib/openvault /var/lib/openvault/backups
+
+# 创建 systemd 服务
+sudo tee /etc/systemd/system/openvault.service << 'EOF'
+[Unit]
+Description=OpenVault Backup Server
+After=network.target
+
+[Service]
+Type=simple
+User=openvault
+Group=openvault
+WorkingDirectory=/var/lib/openvault
+Environment=RUST_LOG=openvault_server=info
+Environment=OPENVAULT_BIND=0.0.0.0:8090
+Environment=OPENVAULT_DB_PATH=/var/lib/openvault/db/openvault.db
+Environment=OPENVAULT_BACKUP_PATH=/var/lib/openvault/backups
+Environment=OPENVAULT_JWT_SECRET=your-secure-jwt-secret
+ExecStart=/usr/local/bin/openvault serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 创建用户和数据目录
+sudo useradd -r -s /bin/false openvault
+sudo mkdir -p /var/lib/openvault/db /var/lib/openvault/backups
+sudo chown -R openvault:openvault /var/lib/openvault
+
+# 启动服务
+sudo systemctl daemon-reload
+sudo systemctl enable openvault
+sudo systemctl start openvault
+sudo systemctl status openvault
+```
+
+#### 生成 JWT 密钥
+
+```bash
+# 生产环境务必设置强密钥
+export OPENVAULT_JWT_SECRET=$(openssl rand -hex 32)
+echo "OPENVAULT_JWT_SECRET=$OPENVAULT_JWT_SECRET" | sudo tee -a /etc/openvault/env
+```
+
+#### 连接 PostgreSQL（生产环境）
+
+```bash
+# 安装 PostgreSQL
+sudo apt-get install postgresql postgresql-contrib
+
+# 创建数据库和用户
+sudo -u postgres createuser openvault
+sudo -u postgres createdb openvault -O openvault
+sudo -u postgres psql -c "ALTER USER openvault PASSWORD 'your_secure_password';"
+
+# 设置环境变量
+export OPENVAULT_DB_PATH="postgres://openvault:your_secure_password@localhost:5432/openvault"
+```
+
+### 方式二：从源码编译
+
+```bash
+# 安装 Rust（如未安装）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# 克隆仓库
+git clone https://github.com/youbanzhishi/OpenVault.git
+cd OpenVault
+
+# 编译 release 版本
+cargo build --release -p openvault-cli
+
+# 二进制位于
+./target/release/openvault-cli
+
+# 安装到系统路径
+sudo cp target/release/openvault-cli /usr/local/bin/openvault
+```
+
+#### 编译依赖（Linux）
+
+```bash
+sudo apt-get install build-essential pkg-config libssl-dev
+```
+
+#### 编译依赖（macOS）
+
+```bash
+xcode-select --install
+```
+
+### 常用命令
+
+```bash
+# 启动服务
+openvault serve
+
+# 检查健康状态
+openvault status
+
+# 列出所有设备
+openvault devices list
+
+# 手动触发备份
+openvault backup run --device <device-id>
+
+# 恢复数据
+openvault restore --snapshot <snapshot-id> --target /path/to/restore
+
+# 查看合规报告
+openvault compliance report
+```
+
+### Nginx 反向代理（推荐生产环境）
+
+```nginx
+server {
+    listen 80;
+    server_name openvault.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket 支持（实时更新）
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
