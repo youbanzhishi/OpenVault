@@ -692,3 +692,7 @@ pub async fn create_notification_rule(
         serde_json::json!({ "rule_id": rule_id, "status": "created" }),
     ))
 }
+
+// Re-export agent_manifest from the handlers submodule
+pub mod agent_manifest;
+pub use agent_manifest::agent_manifest;

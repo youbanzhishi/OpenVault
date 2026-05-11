@@ -18,6 +18,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .allow_headers(Any);
 
     Router::new()
+        // Agent Discovery Protocol
+        .route("/.well-known/agent.json", get(agent_manifest))
         // Health & Status
         .route("/api/v1/health", get(health_check))
         .route("/api/v1/status", get(system_status))
