@@ -4,16 +4,16 @@
 
 **OpenVault** is a secure, intelligent file backup and disaster recovery system written in Rust. It implements the **3-2-1 backup strategy** (3 copies, 2 media types, 1 offsite) with self-healing capabilities.
 
-[![CI](https://github.com/your-org/openvault/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/openvault/actions/workflows/ci.yml)
-[![Release](https://github.com/your-org/openvault/actions/workflows/release.yml/badge.svg)](https://github.com/your-org/openvault/actions/workflows/release.yml)
-[![Docker](https://img.shields.io/docker/v/ghcr.io/your-org/openvault?label=docker)](https://github.com/your-org/openvault/pkgs/container/openvault)
+[![CI](https://github.com/youbanzhishi/openvault/actions/workflows/ci.yml/badge.svg)](https://github.com/youbanzhishi/openvault/actions/workflows/ci.yml)
+[![Release](https://github.com/youbanzhishi/openvault/actions/workflows/release.yml/badge.svg)](https://github.com/youbanzhishi/openvault/actions/workflows/release.yml)
+[![Docker](https://img.shields.io/docker/v/ghcr.io/youbanzhishi/openvault?label=docker)](https://github.com/youbanzhishi/openvault/pkgs/container/openvault)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                       OpenVault v1.0.0                       │
+│                       OpenVault v1.0.1                       │
 ├──────────┬──────────┬───────────┬──────────┬───────────────┤
 │   CLI    │  Server  │  Intel    │ Transport│   Storage     │
 │  (vault) │ (axum)   │  (AI)     │ (OpenLink│  Backends     │
@@ -50,6 +50,86 @@
 | `openvault-storage` | Storage backends: Local, S3, Cloudflare R2 | ~1,500 |
 | `openvault-transport` | OpenLink transport for remote management | ~1,500 |
 | `openvault-cli` | Command-line interface | ~500 |
+
+## Build Requirements
+
+- **Rust** 1.86+ (因 icu 依赖需要 edition 2024，推荐使用 rustup 安装最新稳定版)
+- **C/C++ compiler** (gcc or clang, for SQLite compilation)
+- **pkg-config** (optional, for OpenSSL linking)
+
+```bash
+# Install Rust via rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+## Quick Start
+
+### Download Pre-built Binary
+
+```bash
+# 下载预编译二进制
+curl -L https://github.com/youbanzhishi/OpenVault/releases/latest/download/vault-linux-amd64.tar.gz | tar xz
+./openvault-cli serve
+```
+
+### Docker Deployment
+
+```bash
+# 使用预构建镜像（推荐）
+docker run -d -p 8090:8090 ghcr.io/youbanzhishi/openvault/openvault:latest
+
+# 或从 docker-compose 启动
+docker compose -f docker/docker-compose.yml up -d
+curl http://localhost:8090/api/v1/health
+```
+
+### Build from Source
+
+```bash
+# Build
+cargo build --release -p openvault-server -p openvault-cli
+
+# Start server
+./target/release/openvault-server --bind 0.0.0.0:8090
+
+# Initialize a vault
+./target/release/vault init
+
+# Full backup
+./target/release/vault backup /path/to/data --strategy full
+
+# Verify integrity
+./target/release/vault verify
+
+# Check 3-2-1 policy compliance
+./target/release/vault status --source /path/to/data
+```
+
+📖 For full deployment options, see [部署指南](docs/deployment.md) (Docker, binary, source build, systemd, production config).
+
+### systemd Service Deployment
+
+```ini
+# /etc/systemd/system/openvault.service
+[Unit]
+Description=OpenVault Backup Server
+After=network.target
+
+[Service]
+Type=simple
+User=openvault
+ExecStart=/usr/local/bin/openvault-server --bind 0.0.0.0:8090
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable openvault
+sudo systemctl start openvault
+```
 
 ## Features
 
@@ -103,38 +183,7 @@
 - Web management dashboard with WebSocket updates
 - Physical agent / robot API
 
-## Quick Start
-
-### Using Docker
-
-```bash
-docker compose -f docker/docker-compose.yml up -d
-curl http://localhost:8090/api/v1/health
-```
-
-### From Source
-
-```bash
-# Build
-cargo build --release -p openvault-server -p openvault-cli
-
-# Start server
-./target/release/openvault-server --bind 0.0.0.0:8090
-
-# Initialize a vault
-./target/release/vault init
-
-# Full backup
-./target/release/vault backup /path/to/data --strategy full
-
-# Verify integrity
-./target/release/vault verify
-
-# Check 3-2-1 policy compliance
-./target/release/vault status --source /path/to/data
-```
-
-### CLI Reference
+## CLI Reference
 
 ```
 vault init           Initialize a new vault
@@ -177,7 +226,7 @@ OpenVault includes a comprehensive benchmark suite (`openvault-core::bench`):
 | [Getting Started](docs/getting-started.md) | Installation, configuration, first backup |
 | [API Reference](docs/api-reference.md) | Complete HTTP API documentation |
 | [Backup Strategies](docs/backup-strategies.md) | Strategy guide, templates, encryption |
-| [Deployment Guide](docs/deployment.md) | Docker, production, monitoring, troubleshooting |
+| [Deployment Guide](docs/deployment.md) | Docker, binary, source build, systemd, production config, troubleshooting |
 
 ## Development
 
