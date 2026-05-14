@@ -412,7 +412,10 @@ fn resolve_storage(
             Ok(Box::new(storage))
         }
         (None, None) => {
-            anyhow::bail!("Either --config or --storage must be specified")
+            let default_path = PathBuf::from(".openvault-vault");
+            let storage =
+                LocalVaultStorage::new(&default_path).context("Failed to initialize local storage")?;
+            Ok(Box::new(storage))
         }
     }
 }
@@ -502,7 +505,7 @@ async fn main() -> Result<()> {
                 let stor = resolve_storage(Some(cfg_path), None)?;
                 (stor, cfg)
             } else {
-                let storage_path = storage.unwrap_or_else(|| path.join("../.openvault-vault"));
+                let storage_path = storage.unwrap_or_else(|| PathBuf::from(".openvault-vault"));
                 let stor = LocalVaultStorage::new(&storage_path)
                     .context("Failed to initialize storage")?;
                 let cfg = BackupConfig {
