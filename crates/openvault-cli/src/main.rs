@@ -413,8 +413,8 @@ fn resolve_storage(
         }
         (None, None) => {
             let default_path = PathBuf::from(".openvault-vault");
-            let storage =
-                LocalVaultStorage::new(&default_path).context("Failed to initialize local storage")?;
+            let storage = LocalVaultStorage::new(&default_path)
+                .context("Failed to initialize local storage")?;
             Ok(Box::new(storage))
         }
     }
