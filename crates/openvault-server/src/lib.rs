@@ -19,6 +19,7 @@ pub mod models;
 pub mod services;
 pub mod static_files;
 pub mod web_api;
+pub mod web_ui;
 
 pub use error::ServerError;
 pub use handlers::AppState;

@@ -9,14 +9,7 @@ use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod api;
-mod auth;
-mod error;
-mod handlers;
-mod models;
-mod services;
-
-use handlers::AppState;
+use openvault_server::{api, handlers::AppState};
 
 /// Command line arguments for OpenVault server
 #[derive(Parser, Debug)]

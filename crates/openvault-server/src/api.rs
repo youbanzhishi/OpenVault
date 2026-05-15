@@ -7,6 +7,29 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
+
+use crate::web_ui;
+
+async fn web_ui_dashboard() -> axum::response::Html<String> {
+    web_ui::dashboard_page()
+}
+
+async fn web_ui_devices() -> axum::response::Html<String> {
+    web_ui::devices_page()
+}
+
+async fn web_ui_policies() -> axum::response::Html<String> {
+    web_ui::policies_page()
+}
+
+async fn web_ui_snapshots() -> axum::response::Html<String> {
+    web_ui::snapshots_page()
+}
+
+async fn web_ui_api() -> axum::response::Html<String> {
+    web_ui::api_page()
+}
+
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -82,6 +105,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             post(create_notification_rule),
         )
         // Add state and middleware
+        // ===== Web UI Pages =====
+        .route("/", get(web_ui_dashboard))
+        .route("/ui/devices", get(web_ui_devices))
+        .route("/ui/policies", get(web_ui_policies))
+        .route("/ui/snapshots", get(web_ui_snapshots))
+        .route("/ui/api", get(web_ui_api))
         .with_state(state)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
